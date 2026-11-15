@@ -128,3 +128,8 @@ def delete(x_session:str=Header(default="")):
     with db(True) as conn:
         cur=conn.execute("DELETE FROM game_sessions WHERE token_hash=?",(token_key(x_session),))
     return {"deleted":bool(cur.rowcount)}
+
+
+# Read-only web tool compatible AI player entry; game logic remains private.
+from ai_web import register_ai_routes
+register_ai_routes(app, db, token_key, get_session)
