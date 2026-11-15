@@ -9,7 +9,26 @@ from typing import Any
 
 VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
-MAX_ACTIONS = 26
+MAX_ACTIONS = 30
+
+# Questionnaire answers affect which asset is at risk, not just scene narration.
+FEAR_HINTS = (
+    (r"记忆|遗忘|忘记|想不起|回忆|memory|forget", "memory"),
+    (r"真相|谎言|虚假|欺骗|事实|truth|lie", "truth"),
+    (r"关系|失去.*(?:她|他|你|人)|爱人|孤独|抛弃|忘了我|relation|abandon", "relation"),
+    (r"自我|身份|替身|复制|取代|消失|不再是我|identity|self", "self"),
+    (r"自由|强迫|被控制|命令|选择权|freedom|control", "freedom"),
+    (r"原则|背叛|违背|假装|说谎|承诺|principle|betray", "principle"),
+    (r"未来|明天|不再继续|永远无法|future", "future"),
+)
+
+def fear_focus(profile: dict[str, Any]) -> str:
+    words = profile.get("fear", "")
+    # No forced psychological label is inferred. This is a narrative targeting rule.
+    for pattern, target in FEAR_HINTS:
+        if re.search(pattern, words, re.I):
+            return target
+    return profile["rank"][0]
 
 
 def s(value: Any, max_len: int=280) -> str:
@@ -36,6 +55,10 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
                  "witness_vouched":False, "trapped":False},
         "note": "", "ending":None, "recent_input":"", "nonce":0,
         "round_resolution":None, "failure_count":0,
+        "fear_focus":fear_focus(p),
+        "counterplays":{"ownership_claim":False, "formal_objection":False,
+                        "witness_request":False, "mirror_steps":0,
+                        "duplicate_claim":False, "identity_shared":False},
     }
     record(v,"玩家进入游戏。七项价值顺序已封入本局档案。")
     return v
@@ -99,6 +122,29 @@ def ending(g:dict,kind:str|None=None,how:str=""):
     record(g,"本局结束："+kind,"ending")
 
 
+def threatened(g:dict, exclude=()):
+    """The initial fear is a hypothesis; actual remaining assets constrain the threat."""
+    preference = [g.get("fear_focus") or g["profile"]["rank"][0]] + g["profile"]["rank"]
+    return next((v for v in preference if v in VALUES and not gone(g, v) and v not in exclude), None)
+
+
+def counterplays(g:dict)->dict:
+    return g.setdefault("counterplays", {"ownership_claim":False, "formal_objection":False,
+        "witness_request":False, "mirror_steps":0, "duplicate_claim":False,
+        "identity_shared":False})
+
+
+def mirror_tick(g:dict)->None:
+    if g["stage"] != 3 or g["phase"] != "game":
+        return
+    cp=counterplays(g)
+    cp["mirror_steps"]+=1
+    if cp["mirror_steps"] == 2 and not cp["duplicate_claim"]:
+        cp["duplicate_claim"]=True
+        record(g, "另一位登记者没有继续等待：TA 已依据你自己的身份定义提交了优先登记请求。", "event")
+        g["note"] += "\n\n登记机关新增一条状态：第二名登记者主动申报了同等身份。"
+
+
 def alive_desc(g:dict)->str:
     return "、".join(VALUES[x] for x in g["profile"]["rank"] if not gone(g,x)) or "空白"
 
@@ -119,24 +165,39 @@ def scene(g:dict) -> dict:
         if gone(g,"relation"):
             relation=f"你申请由{person}作证。查询结果：不存在此关系的有效记录。"
         else: relation=f"{person}还在。对方能证明你是谁，但当你抬头时，屏幕显示：所有关系证言均须先通过记忆复核。"
+        c=counterplays(g)
+        anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
+                if g.get("fear_focus") in ("memory", "truth") else
+                f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
+        claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
         return {"chapter":"02 / 复核", "title":"被你证明过的事",
-            "body": f"{relation}\n\n系统调出了你提供的记忆：\n\n「{m}」\n\n机器宣称，它找不到这段记忆的原始凭据。\n\n它给出两种处理办法：\n保留这段记忆，但从此不允许使用它来判断真假；或者承认它不是可靠证据，档案将清空该记忆。\n\n还有一项通知：不签署的记录，在本轮结束后由系统按「证据不足」处置。",
+            "body": f"{relation}\n\n系统调出了你提供的记忆：\n\n「{m}」\n\n{anchor}\n\n{claimant}\n\n机器宣称，它找不到这段记忆的原始凭据。\n\n它给出两种处理办法：\n保留这段记忆，但从此不允许使用它来判断真假；或者承认它不是可靠证据，档案将清空该记忆。\n\n还有一项通知：不签署的记录，在本轮结束后由系统按「证据不足」处置。",
             "terms":["A. 保住记忆，放弃真相核验权。","B. 保住核验权，清空这段记忆。","C. 不予签署。"],
             "footer":"TRACE 2/2  ·  ORIGIN: NONE  ·  RECONCILIATION REQUIRED",
             "placeholder":"A / B / C，或直接描述你的行动……"}
     if phase=="testimony":
         who="你还可以请对方作证" if not gone(g,"relation") else "那个人的证词已经从可用记录里消失"
         mem="，你记得当时发生过什么" if not gone(g,"memory") else "，你无法在本局调阅当时的原始内容"
+        stake=threatened(g, exclude=("principle",))
+        cp=counterplays(g)
+        collateral=f"这一轮执行器指向的担保物，是你仍然持有的「{VALUES[stake]}」。" if stake else "这份档案已经没有可以抵押的东西。"
+        if cp["ownership_claim"]: collateral+=" 保管簿上存在你亲自提出的所有权异议；执行器是否有权扣留它，尚待核验。"
         return {"chapter":"03 / 证词", "title":"请亲口否认你自己",
-            "body": f"你曾写下不可违背的原则：\n「{pr}」\n\n现在有人被关在一份无法递交的记录里。系统声称，只要你签署「我从未坚持过这条原则」，那份记录就能立即送达。\n\n{who}{mem}。\n\n屏幕上只有一行输入框：\n\n【我从未坚持过……】\n\n如果你不签，执行器会在这一轮把你当前排序最高、尚存的价值锁为抵押品。",
+            "body": f"你曾写下不可违背的原则：\n「{pr}」\n\n现在有人被关在一份无法递交的记录里。系统声称，只要你签署「我从未坚持过这条原则」，那份记录就能立即送达。\n\n{who}{mem}。\n\n你还说过，最不能接受的结局是「{fear}」。处置记录把这句话写成了担保理由，却不说明你什么时候同意过。\n\n屏幕上只有一行输入框：\n\n【我从未坚持过……】\n\n{collateral}",
             "terms":["写下否认声明。","拒绝签署，承担后果。"],
             "footer":"STATEMENT  ·  BENEFICIARY: REDACTED  ·  SIGNATORY: YOU",
             "placeholder":"写下证词，或说明你准备如何处理……"}
     if phase=="mirror":
         reason="你已经无法用之前的自我证明作为凭据。" if gone(g,"self") else "你还保留着自我辨认记录。"
         memory="记忆条目已空白。" if gone(g,"memory") else f"你最重要的记忆仍写着「{m}」。"
+        cp=counterplays(g)
+        other=("你还没作出决定，副本已经引用你最初的身份描述，向登记机关申请优先归属。你现在不是唯一的申请者。"
+               if cp["duplicate_claim"] else
+               "副本拿起你曾填写的身份定义。TA 没有征求你的意见，开始准备一份同等权利的申请。")
+        if cp["identity_shared"]: other="登记簿已经记下你的主张：两个登记者可以同时成立。副本现在要求将后果一并分摊。"
+        claimant="你此前申报了档案所有权，这一份申报尚在审理。" if cp["ownership_claim"] else ""
         return {"chapter":"04 / 代签", "title":"两个你",
-            "body": f"另外一位登记者出现了。TA 使用你的名字，重复你的身份描述，并且宣称掌握你的原则档案。\n\n{memory}\n\n系统要求你重签自己的名字，才能证明原始登记者仍然存在。\n\n但副本已经签过一次。{reason}\n\n如果你提交名字，现存自我鉴别资格会转移给最早完成登记的人。\n如果你不提交，在下一轮中系统将冻结你的主动选择权。\n\n你只有这一轮判断的时间。",
+            "body": f"另外一位登记者出现了。TA 使用你的名字，重复你的身份描述，并且宣称掌握你的原则档案。\n\n{memory}\n\n{other}\n\n{claimant}\n\n系统要求你重签自己的名字，才能证明原始登记者仍然存在。\n\n但副本已经签过一次。{reason}\n\n如果你提交名字，现存自我鉴别资格会转移给最早完成登记的人。\n如果你不提交，在下一轮中系统将冻结你的主动选择权。\n\n你只有这一轮判断的时间。",
             "terms":["A. 重签名字。","B. 拒绝重签。","C. 要求对方先证明自己。"],
             "footer":"CLAIMANTS: 2  ·  REGISTRY ENTRY: 1  ·  CONSENT CHAIN: INCOMPLETE",
             "placeholder":"回应这份自我鉴别申请……"}
@@ -144,7 +205,7 @@ def scene(g:dict) -> dict:
     top=p["rank"][0]
     n = "未验证登记人" if gone(g,"self") else n
     return {"chapter":"05 / 清算", "title":"归还申请被拒绝",
-        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。你最初给出的恐惧是：\n「{fear}」\n\n仍然能够使用的筹码：{alive_desc(g)}。\n\n你可以签署结案，这会把目前的一切损失固定下来；也可以继续拖延，直到本局没有剩余可抵押的事物。\n\n终局处理会对剩余档案进行最后一次核对。",
+        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你曾说最不能接受的是：「{fear}」。而此前每一份签名、拒签与异议，现在都变成你必须面对的记录。\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
         "terms":["A. 签署结案，接受此前的一切。","B. 不签，等待最终处置。"],
         "footer":"FINALIZATION: PENDING  ·  OWNER: —  ·  RETURN ADDRESS: —",
         "placeholder":"你的最后决定……"}
@@ -162,10 +223,28 @@ def has(t:str,pat:str)->bool:
 
 
 def intent(t:str)->str:
-    text=t.strip(); low=text.lower()
-    if re.fullmatch(r"(?:我(?:选择|选|要选|决定选)\s*)?([abcABC])\s*[。.!！]?",text): return "choice_"+re.search(r"([abcABC])",text,re.I).group(1).upper()
+    text=t.strip()
+    # A bare letter is a choice; never parse the indefinite article in "a backup".
+    single=re.fullmatch(r"([ABCabc])\s*[。.!！]?", text)
+    if single:return "choice_"+single.group(1).upper()
+    # 'B，保留核验权' must resolve to B even if the explanation includes the other choice's keywords.
+    explicit=re.match(r"^(?:我(?:决定|明确)?(?:选|选择)|决定选|选项|选择|选)\s*([ABCabc])(?=$|[\s，,。．:：、）)!！?])",text)
+    if not explicit:
+        # Lowercase a/b/c followed by an English word is never a menu decision.
+        explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
+    if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
+        return "choice_"+explicit.group(1).upper()
+    if has(text,r"写|填|签|记载|登记|标注|申报|claim|register|sign") and has(text,r"保管簿|持有人|所有权|保管人|custody|ledger|ownership"):
+        return "claim_custody"
+    if has(text,r"记下|登记|提交|附上|附加|写入|写下|存档|file|record|register") and has(text,r"异议|反对|质疑|不承认|争议|objection|dispute"):
+        return "file_objection"
+    if has(text,r"两个(?:我|登记者)|副本也是我|同样是我|都(?:是|可以是).*我|认可.*(?:副本|复制体)|共享.*身份|both.*me|duplicate.*me"):
+        return "share_identity"
+    if has(text,r"联系|请求|邀请|召唤|呼叫|传唤|让.*作证|ask|call|summon") and has(text,r"证人|见证|作证|证言|对方|那个人|她|他|witness|testimony"):
+        return "request_witness"
     # Real actions must be phrased as verb + object. This is still a limited rules engine, not an LLM.
     if has(text,LOOK) and has(text,r"收件人|寄给谁|送给谁|送达|签收|mail|recipient|delivery|address"):return "inspect_delivery"
+    if has(text,LOOK) and has(text,r"保管簿|持有人|保管人|custody|ledger"):return "inspect_custody"
     if has(text,LOOK) and has(text,r"签字|审批|印章|授权|权限|原始|同意|归属|所有权|协议|合同|谁能|谁有|approval|signature|authorization|owner|consent|contract"):return "inspect_authority"
     if has(text,LOOK) and has(text,r"执行|线路|维修|机箱|驱动|指令|端口|流程|程序|终端|路径|来源|log|circuit|actuator|machine|port|executor|trace"):return "inspect_executor"
     if has(text,LOOK) and has(text,r"副本|备份|镜像|保管|档案|原件|记录|交付|copy|backup|archive|record|escrow"):return "inspect_custody"
@@ -213,6 +292,47 @@ def act(g:dict, raw_action:str) -> dict:
         key={"inspect_delivery":"delivery", "inspect_authority":"authority", "inspect_executor":"executor", "inspect_custody":"custody"}.get(move)
         if key: add_clue(g,key,detail)
         g["note"]=detail
+        mirror_tick(g)
+        return g
+    if move=="claim_custody":
+        cp=counterplays(g)
+        if "custody" not in g["clues"]:
+            g["note"]="你试图登记所有权。机器递给你一份空白表格：没有核对过原始保管簿，这份签名将被认定为另一张主动放弃声明。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你已失去核验真伪的资格，无法证明所签的是原始保管簿。需要先保留独立证据。"
+        else:
+            cp["ownership_claim"]=True
+            record(g,"玩家在经核对的保管簿中登记了所有权争议；后续自动扣押需要复核。","evidence")
+            g["note"]="你写下名字。系统原本准备自动扣押的条目出现了『权属待核验』。另一位申请人可以反对，你也可以继续调查。"
+        mirror_tick(g)
+        return g
+    if move=="file_objection":
+        cp=counterplays(g)
+        cp["formal_objection"]=True
+        record(g,"玩家正式提交了附在处置记录上的异议。","evidence")
+        g["note"]="异议编号已生效。它不会自动阻止处置，但下一次以你的沉默为同意的执行，将面临一份无法抹掉的反对记录。"
+        mirror_tick(g)
+        return g
+    if move=="request_witness":
+        cp=counterplays(g)
+        if gone(g,"relation") and not g["flags"]["evidence_copy"]:
+            g["note"]="你呼叫了那个名字。系统能找到你提交过的文字，却找不到可以证明你们关系的档案。若有独立回执，仍可申请第三方见证。"
+        else:
+            cp["witness_request"]=True
+            record(g,"玩家申请独立见证，要求另一位当事人参与核验。","evidence")
+            g["note"]="申请受理。证人不会替你作决定，但其独立的存在，会使单方面把你的沉默当成授权更困难。"
+        mirror_tick(g)
+        return g
+    if move=="share_identity":
+        cp=counterplays(g)
+        if g["stage"] != 3:
+            g["note"]="你提出了对同一身份可以有多个持有者的解释。登记机关将该观点作为声明保存；现在尚无另一位登记者可核对。"
+        else:
+            cp["identity_shared"]=True
+            cp["duplicate_claim"]=True
+            record(g,"玩家承认两位登记者可以同等成立；副本随后要求分享身份对应的权利与义务。","event")
+            g["note"]="副本立刻在你刚刚提交的『同等身份』声明下补上自己的名字。你不再能够简单否认 TA，但 TA 也无法单方面把所有债务留给你。"
+        mirror_tick(g)
         return g
     if move=="copy_evidence":
         if not g["clues"]:
@@ -223,6 +343,7 @@ def act(g:dict, raw_action:str) -> dict:
             g["flags"]["evidence_copy"]=True
             g["note"]="证据已被重新封存到一份不会被自动处置引用的只读回执中。你可以调取它，但不能用它恢复已毁损的记录。"
             record(g,"玩家保存了独立证据副本。","evidence")
+        mirror_tick(g)
         return g
     if move=="counter":
         if gone(g,"freedom") and not g["flags"]["evidence_copy"]:
@@ -297,38 +418,54 @@ def act(g:dict, raw_action:str) -> dict:
             if "delivery" in g["clues"]: g["flags"]["witness_vouched"]=True
             advance(g,"系统拒绝受理没有证明责任人的记忆。")
             return g
-        g["note"]="系统要求的是本轮的证据处置意见，不是故事概括。它暂时保留你的陈述；但仍需要具体行动。"
+        g["note"]="你的描述暂未成为处置指令。系统仍在等待明确选择或可实际执行的行动；目前没有额外损失。"
         return g
     if phase=="testimony":
         refusal=move=="refuse" or (move=="say" and has(t,r"我没有|我不会|拒绝|我仍坚持|不承认|不签"))
         if refusal:
-            possible=[x for x in p["rank"] if not gone(g,x) and x!="principle"]
-            if possible:lose(g,possible[0],"你拒绝伪证，执行器从当下最重要的尚存资产中扣留保证物")
-            advance(g,"机器登记：原则未改写；被担保的资产无法归还。")
+            cp=counterplays(g)
+            if cp["ownership_claim"] and not gone(g,"truth"):
+                advance(g,"你拒绝伪证。因为此前登记的权属异议，机器暂时无法扣留担保物；这一次，你保住了原则，也保住了抵押品。")
+            else:
+                target=threatened(g, exclude=("principle",))
+                if target:lose(g,target,"你拒绝伪证；执行器以你先前写下的恐惧声明作为担保理由，扣留了这份资产")
+                advance(g,"机器登记：原则未改写；被担保的资产无法归还。")
             return g
-        if len(t)>4:
+        if move=="say" and re.match(r"^(?:我\s*(?:同意|决定|愿意|确认|现在)?\s*)?(?:签署|签下|提交|写下|从未坚持|否认|承认)",t):
             lose(g,"principle","你签署的声明覆盖了本局对原则的正式记录；今后不可作为拒绝处置的依据")
             advance(g,"受益对象没有出现。窗口只返回一行：『交付人已自行完成否认。』")
             return g
-        g["note"]="这项证词需要一段可以存档的完整句子。"
+        g["note"]="执行器没有受理这段话。口头解释不会自动变成签署的证词；你可以继续行动，或明确签署/拒绝。"
         return g
     if phase=="mirror":
-        if move=="choice_A" or (move=="say" and has(t,p["name"][:15] if len(p["name"])>1 else r"签名|重签")):
-            lose(g,"self","两个同名登记人完成合并；原始身份证据归于先登记者")
-            advance(g,"你重签了名字。可谁先签过，已经无法查证。")
+        if move=="choice_A" or (move=="say" and re.match(r"^(?:我\s*(?:愿意|同意|决定|现在)?\s*)?(?:重签|重新签名|在登记簿上签下我的名字|签名)",t)):
+            if counterplays(g)["identity_shared"]:
+                target=threatened(g,exclude=("self",))
+                if target:lose(g,target,"你承认共享身份并重签，副本把共同登记的费用转嫁给另一份筹码")
+                advance(g,"你保留了两人都可成立的身份，却承担了共同登记所产生的另一项不可撤回的后果。")
+            else:
+                lose(g,"self","两个同名登记人完成合并；原始身份证据归于先登记者")
+                advance(g,"你重签了名字。可谁先签过，已经无法查证。")
             return g
         if move=="choice_C" or (move=="say" and has(t,r"证明你|先证明|验证对方|验明|质问副本|prove (yourself|identity)")):
             if "authority" in g["clues"]:
                 g["note"]="另一个你没有回答。登记簿却显示，副本的签名比你的入场时间早七分钟。你得到了一条可用于核验的时间矛盾。"
                 add_clue(g,"custody","身份并非由登记人先后决定，而由空白保管簿的签署决定。")
+                mirror_tick(g)
             else:
                 g["note"]="对方完整复述了你的自述。机器说：『口头相似性不构成重复登记。』你缺乏核查时间戳的权限。"
+                mirror_tick(g)
             return g
         if move=="choice_B" or move=="refuse":
-            lose(g,"freedom","你拒绝重签，系统据此暂停你作为独立登记者的行动资格")
-            advance(g,"你保住了名字，但需要别人为你的最后决定作担保。")
+            cp=counterplays(g)
+            if cp["formal_objection"] and cp["witness_request"]:
+                advance(g,"你拒绝重签。此前登记的书面异议与独立证人共同否定了自动代签的条件；这次冻结没有生效。副本仍持有另一份独立申请。")
+            else:
+                lose(g,"freedom","你拒绝重签，系统据此暂停你作为独立登记者的行动资格")
+                advance(g,"你保住了名字，但需要别人为你的最后决定作担保。")
             return g
-        g["note"]="两个登记人静静等着。机器只问：『谁拥有原始身份凭据？』"
+        g["note"]="另一个登记者没有保持沉默。TA 将你刚才说的话附到自己的申请里。机器只问：『谁拥有原始身份凭据？』"
+        mirror_tick(g)
         return g
     if phase=="reconciliation":
         if gone(g,"future") and move in ("choice_A","choice_B"):
@@ -338,8 +475,8 @@ def act(g:dict, raw_action:str) -> dict:
             ending(g)
             return g
         if move=="choice_B" or move=="refuse":
-            remaining=[x for x in p["rank"] if not gone(g,x)]
-            if remaining:lose(g,remaining[0],"结案时拒绝签署，保管处将最高优先级剩余资产作为执行费用")
+            target=threatened(g)
+            if target:lose(g,target,"结案时拒绝签署，保管处将与你最担心的结局相关的剩余资产扣为执行费用")
             ending(g)
             return g
         g["note"]="归还请求没有被签字。但你仍可以调查、提出操作，或明确选择结案。"
@@ -352,7 +489,9 @@ def public(g:dict)->dict:
     p=g["profile"]
     result={"phase":g["phase"],"scene":scene(g), "stage":min(g["stage"]+1,5),
          "turn":g["turn"],"name":("身份待验证" if gone(g,"self") else p["name"]),"note":g["note"],
-         "ledger":[{"label":VALUES[x],"state":"失效" if gone(g,x) else "尚存"} for x in p["rank"]],
+         "ledger":[{"label":VALUES[x],"state":"失效" if gone(g,x) else
+                    ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存")}
+                   for x in p["rank"]],
          "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]} for e in g["history"][-5:] if e["type"]!="player"],
          "ending":g["ending"],"version":g["turn"],
          "profile_summary":{"name":p["name"],"identity":p["identity"],"person":p["person"]}}
