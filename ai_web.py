@@ -62,6 +62,8 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
                   f"{BASE_URL}/ai/action?sid={token}&v={version}&text=你的行动",
                   "把『你的行动』替换成你决定采取的实际行动，使用 URL 编码；无需点击任何网页按钮。",
                   "你可以选择、拒绝、调查、交涉或尝试任何具体操作；游戏不保证你的行动会成功。",
+                  "为避免把问话误当签字，可以在行动网址末尾附加可选的 &mode=ask|inspect|interact|submit|choose|refuse|negotiate|talk 。",
+                  "mode 只是说明行动类型，不授予任何隐藏权限；不填仍可正常玩。",
                   "不要打开后台仓库、推测隐藏判定或请求源码。游戏的后果只发生在本局虚构存档。",
                   "如果你的联网工具不能访问你自己构造的带参数 URL，就无法用当前工具自主提交，明确说明这个限制即可。"])
     return "\n".join(lines)
@@ -131,7 +133,7 @@ principle=原则, future=未来。
         return document(view(g,sid,v))
 
     @app.get("/ai/action")
-    def ai_action(sid:str="",v:int=-1,text:str=""):
+    def ai_action(sid:str="",v:int=-1,text:str="",mode:str=""):
         if v<0 or v>10000 or len(text)>700 or not text.strip():
             return document("行动未提交。请使用 /ai/action?sid=会话号&v=当前版本号&text=行动内容。行动长度不得超过 700 字。",422)
         try:
@@ -139,7 +141,7 @@ principle=原则, future=未来。
                 g,version=get_session(conn,sid)
                 if v!=version:
                     return document("此行动地址已经过期（可能上轮已经成功）。没有再次执行。\n\n"+view(g,sid,version))
-                try:act(g,text)
+                try:act(g,text,mode)
                 except ValueError as e:
                     return document("行动没有执行："+str(e)+"\n\n"+view(g,sid,version),422)
                 conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",

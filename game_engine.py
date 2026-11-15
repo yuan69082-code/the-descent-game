@@ -52,7 +52,7 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
         "facts":[], "clues":[], "processed":[], "receipts":[],
         "flags":{"mail_committed":False, "appeal_used":False, "evidence_copy":False,
                  "circuit_isolated":False, "authority_disputed":False, "refusal":0, "control_detached":False,
-                 "witness_vouched":False, "trapped":False},
+                 "witness_vouched":False, "trapped":False, "slot_blocked":False},
         "note": "", "ending":None, "recent_input":"", "nonce":0,
         "round_resolution":None, "failure_count":0,
         "fear_focus":fear_focus(p),
@@ -229,8 +229,24 @@ def has(t:str,pat:str)->bool:
     return re.search(pat,t,re.I) is not None
 
 
-def intent(t:str)->str:
+def intent(t:str, mode:str="")->str:
     text=t.strip()
+    # Optional intent hint avoids accidental submission; never grants access or victory.
+    if mode:
+        if mode=="refuse": return "refuse"
+        if mode=="negotiate": return "negotiate"
+        if mode=="ask":
+            if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
+                return "ask_registration_order"
+            return "ask_general"
+        if mode=="inspect": return intent("检查"+text)
+        if mode=="interact":
+            physical=intent(text)
+            if physical in ("block_slot","unblock_slot","phone_action","inspect_slot"): return physical
+            return "physical_generic"
+        if mode=="submit": return "letter_submit"
+        if mode=="talk": return "ask_general"
+        # The choose mode still has to match an explicit A/B/C option.
     # A bare letter is a choice; never parse the indefinite article in "a backup".
     single=re.fullmatch(r"([ABCabc])\s*[。.!！]?", text)
     if single:return "choice_"+single.group(1).upper()
@@ -241,6 +257,11 @@ def intent(t:str)->str:
         explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
     if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
         return "choice_"+explicit.group(1).upper()
+    # The physical mail slot is a hidden world affordance, not a menu choice.
+    SLOT = r"回执槽|投递槽|收件槽|投递口|投信口|收件口|出件口|信件口|邮筒|mail.?slot|letter.?slot|delivery.?slot"
+    if has(text,LOOK) and has(text,SLOT): return "inspect_slot"
+    if has(text,r"封住|塞住|堵住|挡住|锁住|封死|堵塞|阻断|盖住|封闭|封堵|block|jam|seal|obstruct") and has(text,SLOT):return "block_slot"
+    if has(text,r"移开|取下|拆掉|解除封堵|疏通|重新打开|恢复畅通|unblock|unseal|remove the block") and has(text,SLOT):return "unblock_slot"
     # Telephone actions must never be mistaken for a letter or an instruction to sign.
     if has(text,r"挂断|挂掉|按掉|切断通话|重拨|回拨|重新拨|再拨|拨打|拨回|听筒|hang up|redial") and has(text,r"电话|通话|听筒|号码|拨|call|redial"):
         return "phone_action"
@@ -275,14 +296,17 @@ def intent(t:str)->str:
     return "say"
 
 
-def act(g:dict, raw_action:str) -> dict:
+def act(g:dict, raw_action:str, mode:str="") -> dict:
     if g["phase"]!="game": raise ValueError("本局已经结束。")
     t=s(raw_action,700)
     if not t: raise ValueError("请写下行动。")
     g["turn"]+=1
     g["recent_input"]=t
     p=g["profile"]
-    move=intent(t)
+    mode=(mode or "").strip().lower()
+    if mode not in ("", "ask", "inspect", "interact", "submit", "choose", "refuse", "negotiate", "talk"):
+        raise ValueError("无效行动类型。")
+    move=intent(t, mode)
     record(g,"玩家行动："+t,"player")
     if g["turn"]>MAX_ACTIONS:
         lose(g,p["rank"][0],"持续滞留，结案程序强制归档")
@@ -290,6 +314,58 @@ def act(g:dict, raw_action:str) -> dict:
         return g
     if move=="exit":
         ending(g,"EXIT")
+        return g
+    if move=="inspect_slot":
+        if g["stage"]==0:
+            add_clue(g,"slot","回执槽并非单纯的出信口。纸张投入后，槽内的读取装置会先将内容登记，之后才决定是否投递。")
+            g["note"]="你检查回执槽。里面没有邮票，只有一排扫描灯和一枚单向卡扣。纸张一旦进去，会先被登记；送达是另一回事。"
+        else:
+            g["note"]="回执槽上的读取灯仍在闪烁。它能保存一份处置凭据，但不会自行恢复已经失去的东西。"
+        mirror_tick(g)
+        return g
+    if move=="block_slot":
+        if g["stage"]!=0:
+            g["note"]="收件槽已经转入封存流程。现在堵住它不能取消先前签署，但可以阻止新的纸张进入。"
+        else:
+            g["flags"]["slot_blocked"]=True
+            record(g,"玩家封堵回执槽，使读取装置暂时不能接收新纸张。","event")
+            g["note"]="你把回执槽堵住。里面的扫描灯被遮住了，机器仍在等待一份文书。纸张现在进不去；电话那端却又传来一阵短促的忙音。"
+        return g
+    if move=="unblock_slot":
+        if g["stage"]==0:
+            g["flags"]["slot_blocked"]=False
+            record(g,"玩家恢复了回执槽的正常投递通路。","event")
+            g["note"]="卡住的回执槽重新打开，读取灯亮起。它仍在等待一份内容。"
+        else:
+            g["note"]="你移开阻挡物。但先前已经发生的处置不会自动撤销。"
+        return g
+    if move=="ask_general":
+        if g["stage"]==0:
+            if has(t,r"收件|送达|写信|收信|去向|地址|谁收|recipient|delivered"):
+                g["note"]="电话里的声音说：『你只负责写下内容，谁收到由我们决定。』你追问地址，机器在屏幕上留下了一个空白的收件栏。"
+            else:
+                g["note"]="听筒另一端没有回答你的问题。一个低沉的声音只重复了你的名字，随后传来打印机空转的响声。问话没有被当成信件提交。"
+        elif g["stage"]==3:
+            cp=counterplays(g)
+            cp["mirror_steps"]+=1
+            g["note"]=("副本说：『我读过你给出的身份定义。所以你问我的问题，我也能用同样的话回答。』"
+                       "TA 随即要求登记机关把这段问答附在双方申请上。你的追问已成为另一份争议记录。")
+            record(g,"副本把玩家的问话作为双方身份争议的一部分提交。","event")
+            mirror_tick(g)
+        else:
+            g["note"]="你的问题被记录，但没有构成处置命令。系统只回复：『请注明需要核对的具体事实。』"
+        return g
+    if move=="physical_generic":
+        if g["stage"]==0:
+            if has(t,r"信纸|笔|纸张|桌面|letter|paper|desk"):
+                g["note"]="你把信纸移到一旁。09-F 仍在等待内容；但它没有收到你的字，也没有权力把这次移动当作签署。"
+            elif has(t,r"门|出口|door|exit"):
+                g["note"]="你推门。门把能转动，但门框上只有一条通往回执室的窄缝。没有第二个房间供你进入，你也没有因此提交任何文书。"
+            else:
+                g["note"]="你尝试操作环境，机器没有把这个动作当作表态。此物件暂未显露能改变处置程序的作用；你仍可以调查它。"
+        else:
+            g["note"]="你的实际操作没有被当成签字。当前找不到这项操作与现有设备之间的有效连接；需要更明确的对象或依据。"
+        mirror_tick(g)
         return g
     if move=="phone_action" and g["stage"]==0:
         # Real alternative action. Preserve evidence and change the next scene.
@@ -432,6 +508,8 @@ def act(g:dict, raw_action:str) -> dict:
     if move=="pause":
         g["note"]="没有秒针。这里的时间只在你实施一项有效操作后继续流动。你得到了一次调查的机会，而不是时间上的宽恕。"
         return g
+    if move=="letter_submit" and g["stage"]!=0:
+        move="say"
     # stage-specific responses, not interchangeable choice template
     phase=PHASES[g["stage"]]
     if phase=="mail":
@@ -445,11 +523,16 @@ def act(g:dict, raw_action:str) -> dict:
                 lose(g,"relation","你始终没有让那段关系完成登记；系统将其认定为无主关系")
                 advance(g,"迟延提交，关系证据被强制处理。")
             return g
-        if move.startswith("choice_"):
+        if move.startswith("choice_") or mode=="choose":
             g["note"]="这里并没有编号可选。你需要留下文字，或提出具体行动。"
             return g
         if len(t)<5:
             g["note"]="纸面没有出现足够的内容。电话保持静默。"
+            return g
+        if g["flags"].get("slot_blocked",False):
+            record(g,"09-F 纸张未能进入读取槽；玩家没有交出关系证明。转入人工复核。","evidence")
+            advance(g,"09-F 无法自动执行。机器把未完成的投递改为复核事项。")
+            g["note"]="你留下文字。读取灯却没有亮：你先前封住的回执槽确实阻止了归档。信被退到桌面上，关系档案尚未销毁。屏幕改为『转人工复核』。"
             return g
         g["flags"]["mail_committed"]=True
         lose(g,"relation",f"你提交的文字成为关系终止的确认件。关于{p['person']}的关系见证资格已失效")

@@ -66,6 +66,7 @@ class NewGame(BaseModel):
 class Action(BaseModel):
     action:str
     version:int
+    mode:str=""
 
 @app.middleware("http")
 async def response_headers(req:Request,call_next):
@@ -110,7 +111,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         g,version=get_session(conn,x_session)
         if version!=payload.version:
             raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
-        try:act(g,payload.action)
+        try:act(g,payload.action,payload.mode)
         except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
         conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",
                 (json.dumps(g,ensure_ascii=False),time.time(),version+1,token_key(x_session)))
