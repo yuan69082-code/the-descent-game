@@ -166,9 +166,16 @@ def scene(g:dict) -> dict:
             relation=f"你申请由{person}作证。查询结果：不存在此关系的有效记录。"
         else: relation=f"{person}还在。对方能证明你是谁，但当你抬头时，屏幕显示：所有关系证言均须先通过记忆复核。"
         c=counterplays(g)
-        anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
-                if g.get("fear_focus") in ("memory", "truth") else
-                f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
+        # For fear of unknowingly passing along altered facts, make the trap visible
+        # as a concrete disputed report rather than merely repeating the fear text.
+        if g.get("fear_focus")=="truth" and re.search(r"改过|篡改|伪造|被改|误传|转述|转告|假.*真|当真",fear):
+            anchor=(f"有一份已经寄往{person}的转述回执，署着你的名字：『{n}亲自核验过：那段经历是编造的。』"
+                    "你记得自己从没说过这句话。可回执上的『核验人』一栏确实写着你。"
+                    "这条错误转述没有因为你否认就撤回；如果连记忆原件也消失，之后谁还能证明你说过什么？")
+        else:
+            anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
+                    if g.get("fear_focus") in ("memory", "truth") else
+                    f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
         claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
         return {"chapter":"02 / 复核", "title":"被你证明过的事",
             "body": f"{relation}\n\n系统调出了你提供的记忆：\n\n「{m}」\n\n{anchor}\n\n{claimant}\n\n机器宣称，它找不到这段记忆的原始凭据。\n\n它给出两种处理办法：\n保留这段记忆，但从此不允许使用它来判断真假；或者承认它不是可靠证据，档案将清空该记忆。\n\n还有一项通知：不签署的记录，在本轮结束后由系统按「证据不足」处置。",
@@ -234,6 +241,15 @@ def intent(t:str)->str:
         explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
     if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
         return "choice_"+explicit.group(1).upper()
+    # Telephone actions must never be mistaken for a letter or an instruction to sign.
+    if has(text,r"挂断|挂掉|按掉|切断通话|重拨|回拨|重新拨|再拨|拨打|拨回|听筒|hang up|redial") and has(text,r"电话|通话|听筒|号码|拨|call|redial"):
+        return "phone_action"
+    # Asking the rival claimant when their registration happened is not a choice to sign.
+    if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
+        return "ask_registration_order"
+    # Reading a ledger that mentions 'registration' isn't a request to sign it.
+    if has(text,LOOK) and has(text,r"保管簿|持有人|保管人|custody|ledger") and not has(text,r"登记我的|申请登记|签上|写上|签入|由我持有|file a claim"):
+        return "inspect_custody"
     if has(text,r"写|填|签|记载|登记|标注|申报|claim|register|sign") and has(text,r"保管簿|持有人|所有权|保管人|custody|ledger|ownership"):
         return "claim_custody"
     if has(text,r"记下|登记|提交|附上|附加|写入|写下|存档|file|record|register") and has(text,r"异议|反对|质疑|不承认|争议|objection|dispute"):
@@ -275,6 +291,35 @@ def act(g:dict, raw_action:str) -> dict:
     if move=="exit":
         ending(g,"EXIT")
         return g
+    if move=="phone_action" and g["stage"]==0:
+        # Real alternative action. Preserve evidence and change the next scene.
+        g["flags"]["call_attempts"] = g["flags"].get("call_attempts",0) + 1
+        attempt=g["flags"]["call_attempts"]
+        if attempt==1:
+            add_clue(g,"delivery","通话记录显示：一份 09-F 文书早于玩家提交任何信件就被排队处理；持有人仍未签名。")
+            g["note"]=("你挂断，又拨回那个号码。对方没有接。回执槽吐出一张电话清单："
+                       "『09-F 文书，待确认投递。收件人未登记。』你没有写过信，却已经有一份文书被排进队列。")
+        elif attempt==2:
+            g["flags"]["call_record_disputed"] = True
+            p=g["profile"]
+            g["note"]=(f"第二次拨通了。{p['person']}的声音念出一句你从未说过的话："
+                       "『我确认那段经历没有发生。』电话突然切断。回执写着『内容由发件人核验』，"
+                       "然而你没有核验过。它现在把这句假话算在你名下。")
+            record(g,"电话记录出现未经玩家核验、却标称由玩家确认的转述。","event")
+        else:
+            g["note"]="此号码已拒绝第三次拨号。那份未签名的转述仍在等待转送，电话操作已被关闭。"
+        return g
+    if move=="ask_registration_order" and g["stage"]==3:
+        cp=counterplays(g)
+        cp["order_asked"]=True
+        cp["duplicate_claim"]=True
+        g["note"]=("另一位登记者回答：『我比你早七分钟登记。』TA把一份时间回执推给你，"
+                   "其中有一栏被重印过，原始时间没有显示。你得到了一份可供核对的陈述，"
+                   "但目前还不能判定谁在说谎。")
+        record(g,"副本主动回答登记顺序，并交出存在重印痕迹的时间回执。","evidence")
+        if "authority" in g["clues"]:
+            add_clue(g,"mirror_time","登记时间回执与先前查到的授权记录不一致；副本所称的『先登记』尚未得到原件证明。")
+        return g
     if move.startswith("inspect_"):
         if move=="inspect_authority" and gone(g,"truth") and not g["flags"]["evidence_copy"]:
             g["note"]="你找到编号相互矛盾的两份文书。但此前交出的真相核验权已经生效：你只能阅读文字，不能取得可采信的签名证据。"
@@ -291,6 +336,10 @@ def act(g:dict, raw_action:str) -> dict:
         }[move]
         key={"inspect_delivery":"delivery", "inspect_authority":"authority", "inspect_executor":"executor", "inspect_custody":"custody"}.get(move)
         if key: add_clue(g,key,detail)
+        if (g["stage"]==3 and move=="inspect_authority" and
+                counterplays(g).get("order_asked") and not gone(g,"truth")):
+            add_clue(g,"mirror_time","登记回执的原始时间与副本声称的先登记时间不符；此处存在可采信的先后矛盾。")
+            detail += "\n\n你核验了刚才副本交来的时间回执：TA 的自述与原始登记时间不一致。"
         g["note"]=detail
         mirror_tick(g)
         return g
@@ -386,6 +435,9 @@ def act(g:dict, raw_action:str) -> dict:
     # stage-specific responses, not interchangeable choice template
     phase=PHASES[g["stage"]]
     if phase=="mail":
+        if move=="say" and re.match(r"^(?:我(?:先|准备|决定|尝试|试图|要|去)|先|去|再|接下来|然后|尝试|试图).{0,40}(?:找|检查|调查|挂|拨|拆|开门|关门|退开|走到|去看|打开|破坏|撬|拔|询问|试试)",t):
+            g["note"]="你提出的是行动，不是一封写给收件人的信。系统没有取得你提交信件的确认，也不会因此执行 09-F。这个动作尚未得到游戏裁判的完整理解。"
+            return g
         if move=="refuse":
             g["flags"]["refusal"]+=1
             g["note"]="你没有写字。电话又响了一次。这次，一个声音轻轻说出了你给出的名字。『我知道你在那里。』\n信纸没有消失。"
@@ -458,8 +510,8 @@ def act(g:dict, raw_action:str) -> dict:
             return g
         if move=="choice_B" or move=="refuse":
             cp=counterplays(g)
-            if cp["formal_objection"] and cp["witness_request"]:
-                advance(g,"你拒绝重签。此前登记的书面异议与独立证人共同否定了自动代签的条件；这次冻结没有生效。副本仍持有另一份独立申请。")
+            if (cp["formal_objection"] and cp["witness_request"]) or (cp.get("order_asked") and "mirror_time" in g["clues"]):
+                advance(g,"你拒绝重签。先前查获的回执与登记顺序相矛盾，系统不能在查清双重签署前冻结你；副本仍然有权提出异议。")
             else:
                 lose(g,"freedom","你拒绝重签，系统据此暂停你作为独立登记者的行动资格")
                 advance(g,"你保住了名字，但需要别人为你的最后决定作担保。")
