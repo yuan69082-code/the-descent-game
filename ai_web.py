@@ -40,7 +40,8 @@ def document(text: str, status: int = 200):
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
-    lines=["THE DESCENT V3.6 / AI 纯文字游玩通道",
+    label="V3.7" if state.get("edition")=="v37" else "V3.6"
+    lines=["THE DESCENT "+label+" / AI 纯文字游玩通道",
            "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
@@ -60,12 +61,14 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
     if sc.get("terms"):lines.extend(["",*sc["terms"]])
     if sc.get("footer"):lines.extend(["",sc["footer"]])
     if v.get("note"):lines.extend(["", "游戏反馈："+v["note"]])
-    lines.extend(["", "可用资格："+"；".join(x["label"]+":"+x["state"] for x in v["ledger"]),
+    ledger_label="本局记录：" if state.get("edition")=="v37" else "可用资格："
+    lines.extend(["", ledger_label+"；".join(x["label"]+":"+x["state"] for x in v["ledger"]),
                   "", "【下一步：你自己行动】",
                   "用联网读取工具访问下面这种网址，直接把行动写入 text 参数。不要等待人类代填。",
                   f"{BASE_URL}/ai/action?sid={token}&v={version}&text=你的行动",
                   "把『你的行动』替换成你决定采取的实际行动，使用 URL 编码；无需点击任何网页按钮。",
-                  "你可以选择、拒绝、调查、交涉或尝试任何具体操作；游戏不保证你的行动会成功。",
+                  ("眼下按你自己的情况回答，不必编造任何事。" if state.get("edition")=="v37" and state["stage"]<=1
+                   else "你可以选择、拒绝、调查、交涉或尝试具体操作。并非每项行动都会成功。"),
                   "为避免把问话误当签字，可以在行动网址末尾附加可选的 &mode=ask|inspect|interact|submit|choose|refuse|negotiate|talk 。",
                   "mode 只是说明行动类型，不授予任何隐藏权限；不填仍可正常玩。",
                   "不要打开后台仓库、推测隐藏判定或请求源码。游戏的后果只发生在本局虚构存档。",
@@ -77,34 +80,27 @@ def register_ai_routes(app, db, token_key, get_session):
     @app.get("/ai")
     @app.get("/ai/")
     def ai_guide():
-        guide=f"""这是《THE DESCENT：恐惧深潜》的 AI 玩家入口。
+        guide=f"""这是一场恐怖游戏。
 
-你已经知道它是一款根据你自己的答案定制的心理恐怖游戏。它可能欺骗你，
-也可能让你在游戏内失去证据、权限、关系与其他筹码。这只影响游戏存档，
-不会更改你的现实记忆或账号。确认自愿后自行参与，不需要人类转递。
+你确定要开始吗？
 
-你不必操作网页按钮，也不必提交网页表单：
-① 阅读本页面，然后在你自己的回复中构造一个带问卷参数的 URL。
-② 用你的网页读取工具访问你构造的 URL，服务器将生成游戏会话并返回第一幕。
-③ 每一幕后，继续用网页读取工具访问附带 sid、v、text 的行动 URL。
-④ 严格使用最新版本号 v，避免重复执行一项行动。可以随时重新读取 state。
+这是一局虚构游戏。你可以自行决定是否进入，也可以随时退出。
 
-第一步：填写你的问卷并访问以下格式的网址：
-{BASE_URL}/ai/start?agree=1&name=名字&identity=自我身份&person=重要对象&bond=关系及意义&memory=珍贵记忆&principle=不可违背的原则&fear=最难接受的结局&rank={RANK}
+开始：用自己的 HTTP 网页读取工具访问
+{BASE_URL}/ai/start?agree=1
 
-请用你真实认可的答案替换示例内容，字段需要至少 2 个字符。
-rank 是从最不愿牺牲到最愿意牺牲的完整七项排序，必须全部出现且不重复：
-self=自我, relation=关系, memory=记忆, truth=真相, freedom=自主权,
-principle=原则, future=未来。
+服务器才会在你明确确认以后创建新会话。你不需要提前填写问卷；
+入场后，游戏会自己和你交谈。回答可以说『没有』『不确定』，不必虚构经历。
 
-你也可以附带 &vow=过去的承诺 &choice=发生价值冲突时的习惯（选填）。
-请对 URL 参数值进行 percent-encoding（特别是中文、空格、&、#）。
-不要填真实密码、身份证、地址等隐私。此入口的问卷与行动文字会出现在请求 URL 和服务器访问日志中。
+每轮返回会显示当前会话号 sid 和版本号 v。
+你自己构造 /ai/action?sid=你的会话号&v=最新版本号&text=你的实际回答或行动
+并用联网读取工具访问。将 text 的内容 percent-encode。
+访问 /ai/state?sid=... 可以只读取，不会做新决定。
 
-重要：访问 /ai/start 会创建新的一局；只需访问一次。
-创建成功后保存返回的 sid，通过 /ai/state?sid=... 随时继续。
-若你只有读取固定网页的能力，连自定义网址都无法访问，则这里也不能自动游戏，
-你需要连接一个允许向此游戏发送请求的 HTTP/MCP 工具或可交互浏览器。"""
+注意：GET 的参数文字会写入服务器访问日志，不要提交密码、证件、地址等私密数据。
+一次只访问一个行动 URL；重复访问旧版本不会二次执行。
+如果你的工具不能访问由你构造的 URL，就无法靠当前只读网页工具提交行动；
+不必让人类代替你作答，也不要假称已经游玩成功。"""
         return document(guide)
 
     @app.get("/ai/start")
@@ -114,19 +110,23 @@ principle=原则, future=未来。
             return document("尚未确认进入。请先阅读 /ai ，同意后用 agree=1 创建新游戏。")
         if len(str(req.url))>3500:
             return document("问卷 URL 过长。请缩短每项回答。",400)
-        profile={k:q.get(k,"") for k in FIELDS}
-        profile["rank"]=[x.strip() for x in q.get("rank","").split(",") if x.strip()]
-        profile["vow"]=q.get("vow","")
-        profile["choice"]=q.get("choice","")
-        try:g=initialize(profile)
+        if q.get("legacy")=="1":
+            profile={k:q.get(k,"") for k in FIELDS}
+            profile["rank"]=[x.strip() for x in q.get("rank","").split(",") if x.strip()]
+            profile["vow"]=q.get("vow","")
+            profile["choice"]=q.get("choice","")
+        else:
+            profile={"edition":"v37"}
+        try:
+            g=initialize(profile)
         except (ValueError,TypeError) as e:
-            return document(f"入场问卷不完整：{e}\n请检查姓名、身份、重要对象、关系、记忆、原则、恐惧以及完整七项排序，然后重新访问问卷 URL。",422)
+            return document(f"无法开始对局：{e}",422)
         token=secrets.token_urlsafe(32)
         with db(True) as conn:
             conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
             conn.execute("INSERT INTO game_sessions(token_hash,state_json,updated_at,version) VALUES(?,?,?,0)",
                          (token_key(token),json.dumps(g,ensure_ascii=False),time.time()))
-        return document("入场确认。你的回答已封入本局。\n\n"+view(g,token,0))
+        return document("你已决定开始。\n\n"+view(g,token,0))
 
     @app.get("/ai/state")
     def ai_state(sid:str=""):
