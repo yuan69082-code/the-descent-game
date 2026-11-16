@@ -85,7 +85,7 @@ def index():
 @app.get("/healthz")
 def health():
     from horror_director import configured
-    return {"ok":True,"name":"THE DESCENT","version":"3.8",
+    return {"ok":True,"name":"THE DESCENT","version":"3.9",
             "model_configured":configured()}
 
 @app.post("/api/new",status_code=201)
@@ -95,6 +95,9 @@ def new_game(payload:NewGame):
     if g.get("edition")=="v38":
         from horror_director import render
         render(g)
+    if g.get("edition")=="v39":
+        from horror_planner import create
+        create(g)
     token=secrets.token_urlsafe(32)
     with db(True) as conn:
         # Expire old sessions after 14 days; nothing is transmitted to analytics.
@@ -117,13 +120,18 @@ def action(payload:Action,x_session:str=Header(default="")):
     if version!=payload.version:
         raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
     action_text,action_mode=payload.action,payload.mode
-    if g.get("edition")=="v38":
+    if g.get("edition") in ("v38","v39"):
         from horror_director import interpret,render
         action_text,action_mode=interpret(g,action_text,action_mode)
+    old_stage=g["stage"]
     try:act(g,action_text,action_mode)
     except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":
         render(g)
+    if g.get("edition")=="v39":
+        from horror_planner import remember,create
+        remember(g,action_text,old_stage,payload.action)
+        create(g)
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
     with db(True) as conn:
@@ -141,7 +149,7 @@ def export(x_session:str=Header(default="")):
     with db() as conn:g,_=get_session(conn,x_session)
     # Full transcript for the player, including private questionnaire, but not private scoring/rules.
     out={"name":g["profile"]["name"],"questionnaire":g["profile"],"lost":g["lost"],"events":g["history"],"ending":g["ending"]}
-    if g.get("edition") in ("v37","v38"):
+    if g.get("edition") in ("v37","v38","v39"):
         story=g["psych"]
         out["experience"]={"interview":story.get("answers",[]),"hypotheticals":story.get("probes",[]),
                            "real_choices":story.get("choices",[]),"consequences":story.get("consequences",[]),
@@ -151,6 +159,10 @@ def export(x_session:str=Header(default="")):
             out["narrative"]={"mode":g.get("director",{}).get("mode","rules"),
                               "scene":g.get("director",{}).get("scene"),
                               "ending_text":g.get("director",{}).get("ending_text")}
+        elif g.get("edition")=="v39":
+            out["narrative"]={"plan":story.get("plan"),"hooks":story.get("hooks",[]),
+                              "question_log":story.get("question_log",[]),
+                              "literal_actions":story.get("literal_actions",[])}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),
