@@ -191,9 +191,10 @@ def create(g):
     if use_model and g["phase"]=="game":
         request=json.dumps(_facts(g),ensure_ascii=False,default=str)[:7900]
         proposal=_completion([{"role":"system","content":INTERNAL_PROMPT},
-          {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],420)
+          {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],
+          420,fast=True)
         if not isinstance(proposal,dict):
-            raise RuntimeError("语义模型暂时没有返回有效的策划结果；本轮没有切换到免费模式。请稍后重试。")
+            raise RuntimeError("语义模型连续调用未完成。本轮行动没有提交，存档版本没有推进，也没有切换到免费模式。请稍后重试同一行动。")
     stage=g["stage"]
     current=default.copy()
     applied=False

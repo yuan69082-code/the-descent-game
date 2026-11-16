@@ -4,6 +4,7 @@ import json
 import os
 import re
 import logging
+import time
 from urllib.parse import urlparse
 
 _model_log=logging.getLogger("the_descent.model")
@@ -70,43 +71,160 @@ def _parse(raw):
             pass
     return None
 
-def _completion(messages,max_tokens):
+def _completion(messages,max_tokens,fast=False):
+    """Bounded, provider-aware model request. Never logs keys, prompts or replies."""
     if not configured():
         return None
-    try:
-        import httpx
-        endpoint=_endpoint()
-        payload={"model":os.environ["HORROR_LLM_MODEL"].strip(),
-                 "messages":messages,"temperature":0.85}
-        # Official DeepSeek Chat Completions accepts max_tokens, not the
-        # OpenAI-specific max_completion_tokens. Keep the other providers intact.
-        if urlparse(endpoint).hostname=="api.deepseek.com":
-            planning=max_tokens>=400
+    import httpx
+    endpoint=_endpoint()
+    host=urlparse(endpoint).hostname or "unknown"
+    is_deepseek=host=="api.deepseek.com"
+    planning=max_tokens>=400
+    payload={"model":os.environ["HORROR_LLM_MODEL"].strip(),
+             "messages":messages,"temperature":0.85}
+    if is_deepseek:
+        if fast:
+            # V3.9 structured decisions do not need high reasoning. Use a
+            # smaller output budget and bounded retry to avoid 25s stalls.
+            payload["max_tokens"]=2048 if planning else 768
+            payload["reasoning_effort"]="low" if planning else "none"
+        else:
+            # Preserve the established V3.8 director request profile.
             payload["max_tokens"]=max(3072 if planning else 1024,max_tokens*4)
             payload["reasoning_effort"]="high" if planning else "low"
-            payload["response_format"]={"type":"json_object"}
-        else:
-            payload["max_completion_tokens"]=max(320,max_tokens)
-        with httpx.Client(timeout=httpx.Timeout(25,connect=5),follow_redirects=False) as client:
-            response=client.post(endpoint,headers={
-                "Authorization":"Bearer "+os.environ["HORROR_LLM_API_KEY"].strip(),
-                "Content-Type":"application/json"},json=payload)
-        response.raise_for_status()
-        answer=response.json()["choices"][0]["message"]["content"]
-        if isinstance(answer,list):
-            answer="".join(str(v.get("text","")) for v in answer if isinstance(v,dict))
-        parsed=_parse(answer[:12000])
-        if parsed is None:
-            # Only a safe failure category; never print responses or player text.
-            _model_log.warning("model_reply_unusable provider=%s category=invalid_json",
-                               urlparse(_endpoint()).hostname)
-        return parsed
-    except Exception as ex:
-        status=getattr(getattr(ex,"response",None),"status_code",None)
-        _model_log.warning("model_request_failed provider=%s class=%s http_status=%s",
-                           urlparse(_endpoint()).hostname,type(ex).__name__,
-                           str(status) if status is not None else "none")
-        return None
+        payload["response_format"]={"type":"json_object"}
+    else:
+        payload["max_completion_tokens"]=max(320,max_tokens)
+
+    # Keep V3.9's worst-case pair (classifier + planner retry) below the
+    # hosting request ceiling. Legacy V3.8 keeps its original timeout profile.
+    read_timeout=((32 if planning else 15) if fast else 25) if is_deepseek else 25
+    attempts=2 if is_deepseek and planning and fast else 1
+    timeout=httpx.Timeout(connect=8,read=read_timeout,write=15,pool=8)
+
+    def retry_pause(response=None):
+        delay=0.6
+        if response is not None:
+            raw=response.headers.get("Retry-After","")
+            try:
+                delay=max(delay,min(float(raw),1.5))
+            except (TypeError,ValueError):
+                pass
+        time.sleep(delay)
+
+    def safe_failure(category,attempt,exc=None,status=None):
+        _model_log.warning(
+            "model_request_failed provider=%s category=%s class=%s http_status=%s attempt=%s/%s",
+            host,category,type(exc).__name__ if exc else "none",
+            str(status) if status is not None else "none",attempt,attempts)
+
+    with httpx.Client(timeout=timeout,follow_redirects=False) as client:
+        for attempt in range(1,attempts+1):
+            try:
+                response=client.post(endpoint,headers={
+                    "Authorization":"Bearer "+os.environ["HORROR_LLM_API_KEY"].strip(),
+                    "Content-Type":"application/json"},json=payload)
+                response.raise_for_status()
+                data=response.json()
+                # DeepSeek may return a generation error inside an HTTP 200 body.
+                if isinstance(data,dict) and data.get("error"):
+                    err=data.get("error") or {}
+                    code=str(err.get("code") or err.get("type") or "provider_error")
+                    retryable=code in ("server_error","timeout","rate_limit_exceeded")
+                    if retryable and attempt<attempts:
+                        _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s",
+                                           host,code,attempt,attempts)
+                        retry_pause()
+                        continue
+                    safe_failure("provider_error",attempt,status=200)
+                    return None
+                choices=data.get("choices") if isinstance(data,dict) else None
+                if not isinstance(choices,list) or not choices:
+                    if attempt<attempts:
+                        _model_log.warning("model_request_retry provider=%s category=missing_choices attempt=%s/%s",
+                                           host,attempt,attempts)
+                        retry_pause()
+                        continue
+                    safe_failure("missing_choices",attempt)
+                    return None
+                choice=choices[0] if isinstance(choices[0],dict) else {}
+                finish_reason=choice.get("finish_reason")
+                if finish_reason=="length":
+                    # Retrying with the same token ceiling would repeat the same truncation.
+                    safe_failure("truncated",attempt)
+                    return None
+                if finish_reason=="content_filter":
+                    safe_failure("content_filter",attempt)
+                    return None
+                if finish_reason in ("insufficient_system_resource","aborted"):
+                    if attempt<attempts:
+                        _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s",
+                                           host,finish_reason,attempt,attempts)
+                        retry_pause()
+                        continue
+                    safe_failure(finish_reason,attempt)
+                    return None
+                message=choice.get("message") or {}
+                answer=message.get("content")
+                if isinstance(answer,list):
+                    answer="".join(str(v.get("text","")) for v in answer if isinstance(v,dict))
+                if not isinstance(answer,str) or not answer.strip():
+                    category="empty_json" if is_deepseek else "empty_content"
+                    if attempt<attempts:
+                        _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s finish_reason=%s",
+                                           host,category,attempt,attempts,finish_reason or "none")
+                        retry_pause()
+                        continue
+                    safe_failure(category,attempt)
+                    return None
+                parsed=_parse(answer[:12000])
+                if parsed is None:
+                    if attempt<attempts:
+                        _model_log.warning("model_request_retry provider=%s category=invalid_json attempt=%s/%s",
+                                           host,attempt,attempts)
+                        retry_pause()
+                        continue
+                    safe_failure("invalid_json",attempt)
+                    return None
+                return parsed
+            except json.JSONDecodeError as ex:
+                if attempt<attempts:
+                    _model_log.warning("model_request_retry provider=%s category=invalid_response_json attempt=%s/%s",
+                                       host,attempt,attempts)
+                    retry_pause()
+                    continue
+                safe_failure("invalid_response_json",attempt,ex)
+                return None
+            except httpx.HTTPStatusError as ex:
+                status=ex.response.status_code if ex.response is not None else None
+                retryable=status in (408,425,429,500,502,503,504)
+                if retryable and attempt<attempts:
+                    _model_log.warning("model_request_retry provider=%s category=http_%s attempt=%s/%s",
+                                       host,status,attempt,attempts)
+                    retry_pause(ex.response)
+                    continue
+                safe_failure("http_error",attempt,ex,status)
+                return None
+            except httpx.TimeoutException as ex:
+                if attempt<attempts:
+                    _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s",
+                                       host,type(ex).__name__,attempt,attempts)
+                    retry_pause()
+                    continue
+                safe_failure("timeout",attempt,ex)
+                return None
+            except (httpx.NetworkError,httpx.RemoteProtocolError) as ex:
+                if attempt<attempts:
+                    _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s",
+                                       host,type(ex).__name__,attempt,attempts)
+                    retry_pause()
+                    continue
+                safe_failure("network_error",attempt,ex)
+                return None
+            except Exception as ex:
+                safe_failure("unexpected_error",attempt,ex)
+                return None
+    return None
 
 def _history(g):
     p=g["psych"]
@@ -238,7 +356,8 @@ def interpret(g,raw,mode=""):
              "visible_choices":canonical.get("terms",[]),
              "world":_facts(g)}
     response=_completion([{"role":"system","content":CLASSIFIER},
-                          {"role":"user","content":json.dumps(request,ensure_ascii=False)[:6200]}],190)
+                          {"role":"user","content":json.dumps(request,ensure_ascii=False)[:6200]}],
+                         190,fast=edition=="v39")
     if not response:
         if edition=="v39" and g.get("model_mode")=="model":
             raise RuntimeError("语义模型暂时没有返回有效的理解结果；本轮没有切换到免费模式，请稍后重试。")

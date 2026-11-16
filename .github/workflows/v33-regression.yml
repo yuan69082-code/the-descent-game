@@ -15,6 +15,7 @@ on:
       - v3-9-model-diagnostics
       - v3-9-conditional-deal-guard
       - v3-10-irreversible-horror-upgrade
+      - v3-11-model-timeout-recovery
       - v3-4-author-afterword
   workflow_dispatch:
 jobs:
