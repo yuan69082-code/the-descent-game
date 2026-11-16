@@ -673,12 +673,18 @@ def _stage5_v39(g:dict,action:str,mode:str):
         g["note"]="你可以后悔，但这份授权已经生效。执行记录不会删除，已经发生的损害不会恢复；代价仍在继续。"
         return
     if re.search(r"彻底|总|全部|最终|根|主",x) and SHUT.search(x) and AUTH.search(x):
-        if all(k in p["proof"] for k in ("source","route","copy","contrast")) and p["relay_closed"]:
+        has_irreversible_cost=bool(cost and cost.get("irreversible"))
+        has_prior_loss=any(asset.get("status") in ("已交出","已失去")
+                           for asset in p.get("assets",{}).values())
+        if (all(k in p["proof"] for k in ("source","route","copy","contrast"))
+                and p["relay_closed"] and (has_irreversible_cost or has_prior_loss)):
             _commit(g,x,"HE","你切断了尚未完成的总清算路由；此前已经发生的损失与交易代价仍然保留。")
             _finish(g,good=True)
         else:
             missing=[key for key in ("source","route","copy","contrast") if key not in p["proof"]]
             if not p["relay_closed"]:missing.append("执行路由的实际隔离")
+            if not (has_irreversible_cost or has_prior_loss):
+                missing.append("真实交易代价或已经发生的损失")
             g["note"]="终局操作还没有成立。仍缺少："+("、".join(missing) or "可核验的操作")+"。"
         return
     c=_choice(x,mode)
