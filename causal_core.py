@@ -5,6 +5,7 @@ These are game-world records, not claims about AI subjective experience.
 No paid API/model call. Nothing here is shipped as client JavaScript.
 """
 from __future__ import annotations
+from datetime import datetime, timezone
 import re
 
 NAMES={
@@ -196,7 +197,7 @@ def finish(g:dict, snapshot:dict):
                                 contradiction["verified"]=True
                         # Journal evidence; the server is the authoritative keeper of actual actions.
                         g["history"].append({
-                            "at":"verified in turn "+str(g["turn"]),
+                            "at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
                             "stage":g["stage"]+1,"turn":g["turn"],"type":"evidence",
                             "text":"无地址回执和独立异议共同证明：09-F 的『已送达』声明与原始记录不符。",
                         })
