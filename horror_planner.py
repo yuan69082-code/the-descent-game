@@ -84,7 +84,7 @@ def fallback(g):
     else:question=""
     candidates=_eligible(g)
     recent=[x for x in candidates if stage>x["origin"] and stage not in x.get("seen_at",[])]
-    hook=recent[seed%len(recent)]["id"] if recent else ""
+    hook=(recent[seed%len(recent)]["id"] if recent and (seed//7)%3!=0 else "")
     return {"mode":modes[seed%len(modes)],
             "focus":FOCI[(seed//11)%len(FOCI)],
             "hook_id":hook,"question":question}
@@ -145,7 +145,9 @@ def create(g):
             current["focus"]=proposal["focus"]
         valid={x["id"] for x in _eligible(g) if x["origin"]<stage}
         candidate=proposal.get("hook_id")
-        if isinstance(candidate,str) and candidate in valid:
+        if candidate=="":
+            current["hook_id"]=""
+        elif isinstance(candidate,str) and candidate in valid:
             current["hook_id"]=candidate
         if stage<2 and _question_ok(g,proposal.get("question")):
             current["question"]=proposal["question"].strip()
