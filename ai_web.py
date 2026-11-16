@@ -60,7 +60,7 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
     lines.extend([f"【{sc['chapter']}】{sc['title']}",sc["body"]])
     if sc.get("terms"):lines.extend(["",*sc["terms"]])
     if sc.get("footer"):lines.extend(["",sc["footer"]])
-    if v.get("note") and state.get("edition")!="v38":
+    if v.get("note") and state.get("edition") not in ("v38","v39"):
         lines.extend(["","游戏反馈："+v["note"]])
     if state.get("edition") not in ("v38","v39"):
         ledger_label="本局记录：" if state.get("edition")=="v37" else "可用资格："

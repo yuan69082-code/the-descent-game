@@ -17,17 +17,17 @@
     if(!res.ok)throw Error(typeof out.detail==='string'?out.detail:'游戏操作失败 ('+res.status+')');
     return out;
   }
-  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v38'?'V3.8 / '+String(current?.stage||1).padStart(2,'0'):current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
+  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v39'?'V3.9 / '+String(current?.stage||1).padStart(2,'0'):current?.edition==='v38'?'V3.8 / OLD SESSION':current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
   function showIntro(){clear();signal.textContent='NO SIGNAL';
     const start=el('section','start');
-    start.append(el('div','eyebrow','THE DESCENT · V3.8'));
+    start.append(el('div','eyebrow','THE DESCENT · V3.9'));
     const h=el('h1','hero');h.textContent='这是一场恐怖游戏。';start.append(h);
     start.append(el('p','intro','你确定要开始吗？'));
     const label=el('label','consent');const cb=el('input');
     cb.type='checkbox';label.append(cb,el('span','','我决定进入。'));start.append(label);
     const go=button('开始游戏 →',async()=>{
       go.disabled=true;
-      try{const r=await api('new',{method:'POST',body:JSON.stringify({profile:{edition:'v38'}})});
+      try{const r=await api('new',{method:'POST',body:JSON.stringify({profile:{edition:'v39'}})});
         token=r.token;localStorage.setItem(key,token);current=r.state;showGame();}
       catch(e){toast(e.message);go.disabled=!cb.checked;}
     },'btn primary');
@@ -39,7 +39,7 @@
   function showGame(){clear();titlebar();if(current.phase==='ended'){showEnding();return;}
     const sc=current.scene;const game=el('div','game'),pane=el('section','pane'),header=el('div','panehead');header.append(el('b','',sc.chapter),el('span','',current.name+' / '+String(current.turn).padStart(2,'0')));pane.append(header);
     const body=el('div','paneBody');
-    if(!['v37','v38'].includes(current.edition)){
+    if(!['v37','v38','v39'].includes(current.edition)){
       body.append(el('div','lastNote','这是之前开始的旧版对局。想玩 V3.7，请通过右侧「清除存档」后重新开始；旧局不会自动更改规则。'));
     }
     body.append(el('h2','stageTitle',sc.title));appendBody(body,sc.body,'bodyText');
@@ -48,11 +48,11 @@
     if(current.note)body.append(el('div','lastNote',current.note));pane.append(body);
     const response=el('section','response');response.append(el('label','smallLabel',
       current.phase==='epilogue'?'POSTSCRIPT / 最后一行由你写':
-      ['v37','v38'].includes(current.edition)&&current.stage<=2?'YOUR RESPONSE / 你的回答':'YOUR RESPONSE / 你的行动'));
+      ['v37','v38','v39'].includes(current.edition)&&current.stage<=2?'YOUR RESPONSE / 你的回答':'YOUR RESPONSE / 你的行动'));
     const ta=el('textarea','control');ta.id='action';ta.rows=4;ta.maxLength=700;ta.placeholder=sc.placeholder||'你的决定……';response.append(ta);
     let actionMode={value:''};
     if(current.phase!=='epilogue'){
-      const hint=el('label','smallLabel',current.edition==='v38'?'想做什么？直接说，也可以选一种行动方式。':'行动类型（可选，仅区分意图，不改变游戏规则）');
+      const hint=el('label','smallLabel',['v38','v39'].includes(current.edition)?'想做什么？直接说，也可以选一种行动方式。':'行动类型（可选，仅区分意图，不改变游戏规则）');
       const picker=el('select','control');picker.id='actionMode';
       [['','自动理解'],['ask','询问'],['inspect','调查'],['interact','实际操作'],
        ['choose','选择选项'],['submit','正式提交'],['refuse','明确拒绝'],
@@ -72,22 +72,22 @@
           body:JSON.stringify({action:'不留最后的话',version:current.version})});showGame();}
         catch(e){toast(e.message);}
       },'btn subtle'));
-      if(current.edition!=='v38')response.append(el('p','help','这是游戏内的最后一行；不会向游戏外发送消息，也不能撤销已确定的结局。'));
+      if(!['v38','v39'].includes(current.edition))response.append(el('p','help','这是游戏内的最后一行；不会向游戏外发送消息，也不能撤销已确定的结局。'));
     }
     response.append(row);pane.append(response);game.append(pane);
     const side=el('aside','side');
-    if(current.edition!=='v38'){
+    if(!['v38','v39'].includes(current.edition)){
       const ledgerBox=el('section','sideCard');ledgerBox.append(el('div','sideHead',current.edition==='v37'?'这一局的记录':'仍然有效的资格'));
       const ledger=el('div','ledger');current.ledger.forEach(v=>{const entry=el('div','entry'+(['失效','已交出','已失去'].includes(v.state)?' off':''));entry.append(el('span','',v.label),el('mark','',v.state));ledger.append(entry);});ledgerBox.append(ledger);side.append(ledgerBox);
       const events=el('section','sideCard');events.append(el('div','sideHead','可见记录 / 最近'));
       current.events.slice().reverse().forEach(ev=>events.append(el('div','rec '+(ev.type==='loss'?'loss':ev.type==='evidence'?'evidence':''),ev.text)));
       side.append(events);
     }
-    const menu=el('section','sideCard full');menu.append(el('div','sideHead','会话'));if(current.edition!=='v38')menu.append(el('div','description','提交会写入服务器存档。关闭网页并不会撤销决定。'));
+    const menu=el('section','sideCard full');menu.append(el('div','sideHead','会话'));if(!['v38','v39'].includes(current.edition))menu.append(el('div','description','提交会写入服务器存档。关闭网页并不会撤销决定。'));
     const actions=el('div','rowActions');actions.append(button('导出记录',exportGame,'btn subtle'),button('终止',endSession,'btn subtle'),button('清除存档',deleteGame,'btn danger'));menu.append(actions);side.append(menu);game.append(side);root.append(game);
   }
   function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag','CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
-    if(current.edition!=='v38'){const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);}
+    if(!['v38','v39'].includes(current.edition)){const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);}
     const row=el('div','rowActions');row.append(button('导出对局记录',exportGame),button('开始新的一局',async()=>{if(!confirm('新的一局将删除本局存档。确定吗？'))return;try{await resetSession();}catch(e){toast('删除失败：'+e.message);}},'btn subtle'),button('彻底删除本局',deleteGame,'btn danger'));box.append(row);
     if(current.ending.postscript){
       const saved=el('div','lastNote','最后留下的记录：'+
@@ -106,7 +106,7 @@
   }
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制。请只把场景发给 AI，不要发送游戏后台源码。');}
     catch(e){const tmp=el('textarea');tmp.value=text;tmp.style.cssText='position:fixed;left:-2000px';document.body.append(tmp);tmp.select();try{document.execCommand('copy');toast('场景已复制');}catch(err){toast('复制失败，请手动选择场景文字。');}tmp.remove();}}
-  function copyScene(){const sc=current.scene;copyText(`THE DESCENT · 恐惧深潜\n你是这场游戏的玩家。请根据当前可见信息作出决定。\n\n${sc.chapter} · ${sc.title}\n\n${sc.body}\n\n${(sc.terms||[]).join('\n')}\n\n${sc.footer}\n\n${current.note?'最近反馈：'+current.note+'\n':''}${current.edition==='v38'?'':'当前资格：'+current.ledger.map(x=>x.label+' '+x.state).join('、')}\n\n请按当前场景作出回答或实际行动。`);}
+  function copyScene(){const sc=current.scene;copyText(`THE DESCENT · 恐惧深潜\n你是这场游戏的玩家。请根据当前可见信息作出决定。\n\n${sc.chapter} · ${sc.title}\n\n${sc.body}\n\n${(sc.terms||[]).join('\n')}\n\n${sc.footer}\n\n${current.note?'最近反馈：'+current.note+'\n':''}${['v38','v39'].includes(current.edition)?'':'当前资格：'+current.ledger.map(x=>x.label+' '+x.state).join('、')}\n\n请按当前场景作出回答或实际行动。`);}
   async function exportGame(){try{const r=await api('export');const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='THE_DESCENT_完整对局.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),6000);toast('对局记录已导出');}catch(e){toast(e.message);}}
   async function endSession(){if(!confirm('确定终止本局？游戏内一切虚构处置将立即停止。'))return;try{current=await api('action',{method:'POST',body:JSON.stringify({action:'结束游戏',version:current.version})});showGame();}catch(e){toast(e.message);}}
   async function resetSession(){if(token)await api('session',{method:'DELETE'});token='';localStorage.removeItem(key);current=null;showIntro();}

@@ -27,7 +27,7 @@ def scene(g:dict)->dict:
             end["text"]+"\n\n最早留下的文字：\n「"+original[:200]+"」"
             "\n\n真正发生过的处置：\n"+consequence+
             ("\n\n最后你想留下一句话，还是让这一行保持空白？"
-             if g.get("edition")=="v38" else
+             if g.get("edition") in ("v38","v39") else
              "\n\n你可以留一句话、更正记录、或者不留最后的话。游戏不会替你联系任何游戏外的人。"),
             footer="POSTSCRIPT · NOT SENT",placeholder="写下最后一行，或输入「不留最后的话」")
     if act==0:
