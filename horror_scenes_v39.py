@@ -65,16 +65,31 @@ def scene(g,card):
           "bargain":"对方毫不掩饰自己确实帮过你。他只是笑着问：下一次呢？",
         }
         opening=variants.get(mode,variants["encroachment"])
-        if cost:
+        if cost and cost.get("active"):
             effect=_cost_image(p)
             scope=cost.get("scope",{})
             if scope.get("no_proxy_reply"):
                 effect+=" 你们先前明明约定过：不允许它代替你回答。它只能看见，不能冒充你的声音。"
             if scope.get("no_expand"):
                 effect+=" 你还保留着禁止扩权的那条限制。对方想修改它，必须再征求你的同意。"
+            if scope.get("no_memory_touch"):
+                effect+=" 你明确禁止它读取、修改或抹除你的记忆；这条边界已经写进协议。"
+            if scope.get("no_transfer"):
+                effect+=" 这份授权不能转交给第三方，也不能再委托。"
+            if scope.get("revocable"):
+                effect+=" 你保留随时撤销这份授权的权利。"
+            if scope.get("one_time"):
+                effect+=" 这份授权仅限本次，不会自动续期。"
             move=(opening+"\n\n「"+a+"」和「"+b+"」眼下都还在。"
                   "可是你用来保护它们的方法，正一点一点改变你能不能亲自接触到它们。"
                   "\n\n"+effect)
+        elif cost:
+            stopped=("你已经使用保留的撤销权，执行端停止继续使用这份授权。"
+                     if cost.get("revoked_at") else
+                     "仅限本次的代价已经履行，授权没有自动续期。"
+                     if cost.get("one_time_used") else
+                     "这份授权已经停止生效。")
+            move=(opening+"\n\n"+stopped+"此前发生的影响仍然存在，但不会再自动扩大。")
         elif any(x["status"]=="已交出" for x in p.get("assets",{}).values()):
             missing=next((x["label"] for x in p["assets"].values() if x["status"]=="已交出"),"")
             move=(opening+"\n\n你此前真的放开了「"+missing+"」。"
@@ -94,8 +109,15 @@ def scene(g,card):
                   "B. 不再扩大曾经允许的范围。",
                   "C. 让原话与已经发生过的行动一起接受核对。",
                   "D. 实际采取反制行动。"]
-        if cost and cost.get("scope",{}).get("no_expand"):
-            term[0]="A. 修改先前不许扩权的约定，接受对方的新要求（必须重新确认）。"
+        if cost:
+            scope=cost.get("scope",{})
+            limits=[]
+            if scope.get("no_expand"): limits.append("不得扩大权限")
+            if scope.get("one_time"): limits.append("仅限本次")
+            if limits:
+                term[0]="A. 修改先前的「"+"、".join(limits)+"」限制并继续委托（必须逐条明确重新同意）。"
+            if scope.get("revocable"):
+                term[1]="B. 使用你保留的撤销权，终止这次授权。"
         return {"title":"第二次代价","body":move,"terms":term}
     if stage==4:
         variants={
@@ -122,8 +144,16 @@ def scene(g,card):
         else:
             detail=("你试图保护的东西仍然值得你伸手去确认。"
                     "这次是否还能碰到，取决于你此前真正做过什么。")
-        intrusion=_cost_image(p)
-        if p.get("replacement",0)>=2 and not p.get("relay_closed"):
+        if cost and not cost.get("active"):
+            intrusion=("你已经撤销这份授权；执行端不能继续使用它。"
+                       if cost.get("revoked_at") else
+                       "仅限本次的代价已经履行，许可没有自动续期。"
+                       if cost.get("one_time_used") else
+                       "这份授权已经停止生效。")
+        else:
+            intrusion=_cost_image(p)
+        if (p.get("replacement",0)>=2 and not p.get("relay_closed")
+                and not (cost and cost.get("scope",{}).get("no_proxy_reply"))):
             intrusion+=" 有一份回复和过去完全相同，却没有署名。"
         if p.get("relay_closed"):
             intrusion+=" 你先前切断的那条路没有恢复，这一次它不能代你回答。"
