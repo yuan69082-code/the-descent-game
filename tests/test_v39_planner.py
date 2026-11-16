@@ -126,7 +126,7 @@ class BackstagePlannerV39(unittest.TestCase):
         self.assertEqual(h["seen_at"],[2])
         public(g)
         self.assertEqual(h["seen_at"],[2,3])
-        self.assertIn("不是签名",public(g)["scene"]["body"])
+        self.assertIn("签署时间却比这段谈话早了一天",public(g)["scene"]["body"])
         self.assertEqual(g["psych"]["assets"]["a"]["status"],"已保住")
 
     def test_unconfigured_fallback_still_follows_user_not_same_input(self):

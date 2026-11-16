@@ -274,16 +274,23 @@ def _setup(g:dict):
     second=_label(a[3],"本局的独立核验权")
     src=3
     p.setdefault("relationships",[])
-    same_subject=_same_subject_v39 if g.get("edition")=="v39" else _same_subject
-    if same_subject(first,second):
-        related=_related_object(a[3],first) or _related_object(a[6],first)
-        if related:
-            second=related
-            src=3
-            p["relationships"].append({"subject":first,"related_item":second,
-                                       "relation":"associated_item","source_answer":3})
-        else:
-            second="与「"+first+"」有关的独立记录"
+    if g.get("edition")=="v39":
+        if _same_subject_v39(first,second):
+            related=_related_object(a[3],first) or _related_object(a[6],first)
+            if related:
+                second=related
+                src=3
+                p["relationships"].append({"subject":first,"related_item":second,
+                                           "relation":"associated_item","source_answer":3})
+            else:
+                second="与「"+first+"」有关的独立记录"
+                src=-1
+    else:
+        if _same_subject(first,second):
+            second=_label(a[2],"本局的独立核验权")
+            src=2
+        if _same_subject(first,second):
+            second="本局原始记录的独立核验权"
             src=-1
     p["a"],p["b"]=first,second
     negative=[]

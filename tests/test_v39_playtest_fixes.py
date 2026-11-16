@@ -175,11 +175,11 @@ class V310PlaytestRegressions(unittest.TestCase):
         self.assertEqual(g["stage"],4)
         act(g,"A","choose")
         self.assertEqual(g["psych"]["beat"],1)
-        first=g["psych"]["replacement"]
+        first=g["psych"]["intrusion"]
         act(g,"A","choose")
         self.assertEqual(g["phase"],"epilogue")
         self.assertTrue(cost["active"])
-        self.assertGreater(g["psych"]["replacement"],first)
+        self.assertGreater(g["psych"]["intrusion"],first)
 
     def test_free_mode_never_calls_semantic_model(self):
         g=ready("free")
