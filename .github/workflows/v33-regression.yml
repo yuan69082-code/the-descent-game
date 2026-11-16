@@ -5,6 +5,7 @@ on:
       - v3-3-endings
       - v3-4-global-causality
       - main
+      - v3-4-author-afterword
   workflow_dispatch:
 jobs:
   game-engine:
