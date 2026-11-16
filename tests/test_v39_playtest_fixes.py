@@ -188,7 +188,7 @@ class LivePlaytestFixes(unittest.TestCase):
         self.assertEqual(cost["scope_conditions"],offer["conditions"])
         body=public(g)["scene"]["body"]
         self.assertIn("禁止它读取、修改或抹除",body)
-        self.assertIn("不能代替你回答",body)
+        self.assertIn("不允许它代替你回答",body)
         self.assertIn("不能转交给第三方",body)
         act(g,"A","choose")
         self.assertEqual(g["psych"]["replacement"],0)
