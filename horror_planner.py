@@ -159,25 +159,31 @@ def create(g):
                 h.setdefault("seen_at",[]).append(stage)
     return p["plan"]
 
-def remember(g,raw:str,previous_stage:int):
+def remember(g,raw:str,previous_stage:int,literal:str|None=None):
     """Only actual player submissions seed potential future hooks."""
     if g.get("edition")!="v39":return
     p=g["psych"]
     p.setdefault("question_log",[])
     p.setdefault("hooks",[])
     value=(raw or "").strip()[:290]
+    original=(literal or value).strip()[:290]
     if g["turn"]==0 or not value or value.lower() in ("退出","结束游戏","退出游戏"):
         return
+    p.setdefault("literal_actions",[]).append({"act":previous_stage+1,
+           "literal":original,"accepted_action":value,"turn":g["turn"]})
+    p["literal_actions"]=p["literal_actions"][-55:]
     if previous_stage in (0,1):
         from v37_engine import QUESTIONS,PROBES
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
         if i<0:return
         plan=p.get("plan") or {}
         planned=plan.get("question","") if plan.get("stage")==previous_stage else ""
-        prompt=(planned or QUESTIONS[i] if previous_stage==0 else
-                planned or PROBES[i].format(
-                a=p.get("a",""),b=p.get("b",""),
-                n=(p.get("negative") or [""])[0]))
+        if previous_stage==0:
+            prompt=planned or QUESTIONS[i]
+        else:
+            prompt=planned or PROBES[i].format(
+              a=p.get("a",""),b=p.get("b",""),
+              n=(p.get("negative") or [""])[0])
         p["question_log"].append({"act":previous_stage+1,"asked":prompt[:160],
                                   "answered":value,"turn":g["turn"]})
         if previous_stage==0 and i not in (0,7):
@@ -196,7 +202,7 @@ def remember(g,raw:str,previous_stage:int):
     hid="h"+hashlib.sha256(marker.encode()).hexdigest()[:10]
     if any(x["id"]==hid for x in p["hooks"]):return
     p["hooks"].append({"id":hid,"origin":previous_stage,"kind":kind,
-                       "detail":value,"seen_at":[],"at_turn":g["turn"]})
+                       "detail":original,"seen_at":[],"at_turn":g["turn"]})
     p["hooks"]=p["hooks"][-42:]
 
 def _callback(g,card):
