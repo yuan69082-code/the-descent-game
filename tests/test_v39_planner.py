@@ -83,7 +83,7 @@ class BackstagePlannerV39(unittest.TestCase):
         scene=public(g)["scene"]
         self.assertEqual(card["hook_id"],h["id"])
         self.assertIn(h["detail"][:30],scene["body"])
-        self.assertIn("另一个人竟也知道",scene["body"])
+        self.assertIn("有人在另一份登记里写下",scene["body"])
         self.assertEqual(g["stage"],2)
         self.assertFalse(g["psych"]["choices"])
 
@@ -115,14 +115,18 @@ class BackstagePlannerV39(unittest.TestCase):
         with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",return_value={
             "mode":"trace","focus":"choice","hook_id":h["id"],"question":""}):
             planner.create(g)
+        self.assertEqual(h["seen_at"],[])
+        public(g)
         self.assertEqual(h["seen_at"],[2])
         submit(g,"C")
         self.assertEqual(g["stage"],3)
         with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",return_value={
             "mode":"echo","focus":"aversion","hook_id":h["id"],"question":""}):
             planner.create(g)
+        self.assertEqual(h["seen_at"],[2])
+        public(g)
         self.assertEqual(h["seen_at"],[2,3])
-        self.assertIn("不是签名",public(g)["scene"]["body"])
+        self.assertIn("签署时间却比这段谈话早了一天",public(g)["scene"]["body"])
         self.assertEqual(g["psych"]["assets"]["a"]["status"],"已保住")
 
     def test_unconfigured_fallback_still_follows_user_not_same_input(self):
@@ -196,9 +200,9 @@ class BackstagePlannerV39(unittest.TestCase):
         valid={"mode":"smalltalk","focus":"a","hook_id":"",
                "question":"你希望大家怎样称呼你？",
                "body":"玩家已经失去一切。"}
-        with mocked.object(planner,"configured",return_value=True),mocked.object(planner,"_completion",return_value=valid) as fake:
+        with mocked.object(planner,"configured",return_value=True),mocked.object(planner,"_completion",return_value=valid) as fake, patch("horror_director.configured",return_value=True):
             web=TestClient(app)
-            start=web.post("/api/new",json={"profile":{"edition":"v39"}})
+            start=web.post("/api/new",json={"profile":{"edition":"v39","model_mode":"model"}})
             self.assertEqual(start.status_code,201)
             sid=start.json()["token"]
             self.assertIn("怎样称呼你",start.json()["state"]["scene"]["body"])

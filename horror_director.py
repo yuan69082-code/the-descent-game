@@ -42,6 +42,12 @@ def configured():
     return bool(os.environ.get("HORROR_LLM_API_KEY","").strip() and
                 os.environ.get("HORROR_LLM_MODEL","").strip() and _endpoint())
 
+
+def model_enabled(g):
+    """Explicit V3.9 mode is fixed at game creation; None preserves legacy sessions."""
+    mode=g.get("model_mode")
+    return configured() if mode is None else mode=="model" and configured()
+
 def _parse(raw):
     if not isinstance(raw,str):
         return None
@@ -200,9 +206,22 @@ _MAPPING={
 }
 def interpret(g,raw,mode=""):
     """Model may interpret an explicit action; game engine executes validated result."""
-    if not configured() or g.get("edition") not in ("v38","v39") or g["stage"]<2:
+    edition=g.get("edition")
+    if edition not in ("v38","v39") or g["stage"]<2:
+        return raw,mode
+    if edition=="v39" and g.get("model_mode")=="free":
+        return raw,mode
+    if edition=="v39" and g.get("model_mode")=="model" and not configured():
+        raise RuntimeError("本局选择了语义模型模式，但模型服务当前不可用；没有切换到免费模式。")
+    if not configured():
         return raw,mode
     text=raw.strip()
+    if edition=="v39" and re.search(r"更正|纠正|我刚才说错|前面那句不对|不是.{1,24}(?:而是|其实是|是)",text):
+        return raw,mode
+    if edition=="v39":
+        from horror_deals import is_revocation_request
+        if is_revocation_request(text):
+            return raw,mode
     if g.get("edition")=="v39" and g["stage"]==2:
         from horror_deals import parse as read_offer
         if read_offer(g,text,mode) is not None:
@@ -221,6 +240,8 @@ def interpret(g,raw,mode=""):
     response=_completion([{"role":"system","content":CLASSIFIER},
                           {"role":"user","content":json.dumps(request,ensure_ascii=False)[:6200]}],190)
     if not response:
+        if edition=="v39" and g.get("model_mode")=="model":
+            raise RuntimeError("语义模型暂时没有返回有效的理解结果；本轮没有切换到免费模式，请稍后重试。")
         return raw,mode
     kind=response.get("kind")
     if kind=="choose":

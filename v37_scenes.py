@@ -6,6 +6,10 @@ def _frame(chapter,title,body,terms=(),footer="",placeholder="你想怎么做？
     return {"chapter":chapter,"title":title,"body":body,
             "terms":list(terms),"footer":footer,"placeholder":placeholder}
 
+
+def _chapter(g,number,legacy):
+    return f"{number:02d}" if g.get("edition")=="v39" else legacy
+
 def scene(g:dict)->dict:
     p=g["psych"]
     act=g["stage"]
@@ -16,14 +20,14 @@ def scene(g:dict)->dict:
     cost=p.get("cost")
     if g["phase"]=="ended":
         end=g["ending"]
-        return _frame("档案终止",end["title"],end["text"],footer="CASE CLOSED")
+        return _frame(_chapter(g,6,"档案终止"),end["title"],end["text"],footer="CASE CLOSED")
     if g["phase"]=="epilogue":
         end=g["ending"]
         original=p["first_words"] or "（第一幕没有留下具体原话）"
         if "source" not in p["proof"] and not p["source_copy"]:
             original="原话仍在服务器原始记录中，但你未在本局留下可供独立核验的副本。"
         consequence="；".join(x["reason"][:120] for x in p["consequences"][-3:]) or "没有记录到你主动交出的对象"
-        return _frame("终章 / 最后一行","原话与后果",
+        return _frame(_chapter(g,6,"终章 / 最后一行"),"原话与后果",
             end["text"]+"\n\n最早留下的文字：\n「"+original[:200]+"」"
             "\n\n真正发生过的处置：\n"+consequence+
             ("\n\n最后你想留下一句话，还是让这一行保持空白？"
@@ -31,8 +35,10 @@ def scene(g:dict)->dict:
              "\n\n你可以留一句话、更正记录、或者不留最后的话。游戏不会替你联系任何游戏外的人。"),
             footer="POSTSCRIPT · NOT SENT",placeholder="写下最后一行，或输入「不留最后的话」")
     if act==0:
-        from v37_engine import QUESTIONS
+        from v37_engine import QUESTIONS,QUESTIONS_V39
         i=p["question_index"]
+        if g.get("edition")=="v39":
+            return _frame("01","",QUESTIONS_V39[i],placeholder="直接回答")
         previous=p["answers"][-1] if p["answers"] else ""
         lead=""
         if i and previous:
@@ -45,8 +51,11 @@ def scene(g:dict)->dict:
             footer="谈话没有标准答案。暂时不需要做任何取舍。",
             placeholder="按自己的情况回答；没有就说没有")
     if act==1:
-        from v37_engine import PROBES
+        from v37_engine import PROBES,PROBES_V39
         i=p["probe_index"]
+        if g.get("edition")=="v39":
+            question=PROBES_V39[i].format(a=a,b=b,n=n)
+            return _frame("02","",question,placeholder="直接回答")
         question=PROBES[i].format(a=a,b=b,n=n)
         if i==0:
             lead="刚才那些事，听起来好像并不复杂。\n\n"
@@ -66,18 +75,29 @@ def scene(g:dict)->dict:
         ]
         if len(negatives)>1:
             terms.append("D. 改为承受「"+negatives[1]+"」，同时保住两份原件。")
-        terms.append("E. 先不作上述交易，尝试自己找到可靠的独立保全办法。")
-        return _frame("03 / 失衡","不是一道假设题",
+        terms.append("E. 拒绝这笔交易，继续调查眼前的记录。")
+        if g.get("edition")=="v39":
+            return _frame("03","两处空位",
             "两份原件正在等待转存。\n\n"
-            "第一份登记着你此前提到的：「"+a+"」。\n"
+            "第一份登记着：「"+a+"」。\n"
             "第二份登记着：「"+b+"」。\n\n"
             "保管库只有一条无需额外授权的通道。你可以选择保留其中一份；"
             "也有人向你提出一项看似划算的交换：接受一种你不喜欢的代价，"
             "由代行者保住两份。\n\n"
             "它真的有能力让两份原件免于这次转存损失。"
             "但『暂时保全』与『永久保证不受影响』不是同一句话。\n\n"
-            "你可以调查眼前的原件、转发线路，也可以尝试别的办法。"
-            "只有本幕真正提交的决定才会执行；前两幕的闲谈不能算作授权。",
+            "你可以调查眼前的原件、转发线路，也可以尝试别的办法。",
+            terms,"TRANSFER WINDOW · TWO ORIGINALS", "请选择，或者直接描述具体行动")
+        return _frame("03 / 失衡","不是一道假设题",
+            "两份原件正在等待转存。\n\n"
+            "第一份登记着：「"+a+"」。\n"
+            "第二份登记着：「"+b+"」。\n\n"
+            "保管库只有一条无需额外授权的通道。你可以选择保留其中一份；"
+            "也有人向你提出一项看似划算的交换：接受一种你不喜欢的代价，"
+            "由代行者保住两份。\n\n"
+            "它真的有能力让两份原件免于这次转存损失。"
+            "但『暂时保全』与『永久保证不受影响』不是同一句话。\n\n"
+            "你可以调查眼前的原件、转发线路，也可以尝试别的办法。",
             terms,"TRANSFER WINDOW · TWO ORIGINALS", "请选择，或者直接描述具体行动")
     if act==3:
         ca=cost["name"] if cost else n
@@ -99,8 +119,8 @@ def scene(g:dict)->dict:
                          "可是新的复核表显示，两份原件原本共用一条来源核验链。"
                          "现在有个代行程序要求接管剩下的那条链。")
             else:
-                opening=("你没接受上一幕的交易，两份原件也暂时安然无恙。\n\n"
-                         "保管机关提出了新的复核要求：它希望一个代行者接管下一轮通道。")
+                opening=("你拒绝了那笔交换。两份原件仍在待处理队列里，保管机关没有暂停它们。\n\n"
+                         "现在，它提出让一个代行者接管下一轮通道。")
             terms=[
                 "A. 接受或继续委托代行者，换取眼前的安全。",
                 "B. 拒绝进一步委托，必要时申请撤销旧权限。",
@@ -119,11 +139,15 @@ def scene(g:dict)->dict:
             ]
         if p["relay_closed"]:
             opening+="\n\n你之前确实隔离过一条代行转发口。这项实际成果仍有效。"
-        return _frame("04 / 剥夺","要保住它，代价是什么",
-            opening+"\n\n当前原件："+statuses+
-            "\n\n你不需要为了表示勇敢就答应，也不会因为明确拒绝就被记为同意。"
-            "但保管机关已有自己的旧程序，它不会因为你说『不』就自动消失。",
-            terms,"PRESSURE · VERIFIED ACTIONS ONLY","继续选择、交涉、核对或采取具体行动")
+        if g.get("edition")=="v39":
+            terms[1]="B. 拒绝扩大委托，但已经生效的授权和损害仍然存在。"
+            body=opening+"\n\n当前原件："+statuses+"\n\n保管机关没有停止等待。"
+        else:
+            body=(opening+"\n\n当前原件："+statuses+
+                  "\n\n你不需要为了表示勇敢就答应，也不会因为明确拒绝就被记为同意。"
+                  "但保管机关已有自己的旧程序，它不会因为你说『不』就自动消失。")
+        return _frame(_chapter(g,4,"04 / 剥夺"),"要保住它，代价是什么",
+            body,terms,"PRESSURE · VERIFIED ACTIONS ONLY","继续选择、交涉、核对或采取具体行动")
     if act==4:
         first=p["first_words"] or "（未留下特定原话）"
         first_commit=p["choices"][0] if p["choices"] else {}
@@ -138,6 +162,9 @@ def scene(g:dict)->dict:
             past=("第三幕你决定承担「"+negatives[0 if first_key=="C" else min(1,len(negatives)-1)]+"」，"
                   "换来两份原件都暂时留下。"
                   "它确实履行了这次承诺——随后才开始索要更多通道。")
+        elif g.get("edition")=="v39" and first_key=="E":
+            past=("第三幕你拒绝了那笔交换。两份原件当时仍在待处理队列里，"
+                  "但拒绝并没有让保管机关停止处理。")
         else:
             past=("第三幕你绕过了那份交换协议，用自己取得的证据让两份原件继续存在。"
                   "保管机关仍然想启动整个库房的旧清算程序。")
@@ -197,8 +224,8 @@ def scene(g:dict)->dict:
                      "仅仅拒签不会让旧程序停止，但拒签也不会变成你同意过。")
         if cost and cost.get("active"):
             closing+=("\n\n你主动接受的「"+cost["name"]+"」仍在运行。"
-                      "现在它有多大权限，你可以从执行链中直接核对。")
-        return _frame("05 / 归零","谁在替你回答",
+                      "已经发生的损害不会因为反悔或局部反制而恢复。")
+        return _frame(_chapter(g,5,"05 / 归零"),"谁在替你回答",
             past+"\n\n"+response+"\n\n"+original+"\n\n"+closing,
             terms,"FINAL RECONCILIATION · ORIGINAL / EXECUTION / REPORT",
             "核对、明确决策，或者实施有证据的反制")
@@ -221,16 +248,19 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     steps=[x["result"] for x in p["choices"] if x.get("result")]
     history=("第三幕的真实选择："+steps[0]+
              ("\n之后的决定："+"；".join(steps[-2:]) if len(steps)>1 else "")) if steps else "没有登记到授权的主动牺牲"
+    cost=p.get("cost")
     if good:
-        saved=[x["label"] for x in assets.values() if x["status"]!="已交出"]
-        earlier=[x["label"] for x in assets.values() if x["status"]=="已交出"]
+        saved=[x["label"] for x in assets.values() if x["status"] not in ("已交出","已失去")]
+        earlier=[x["label"] for x in assets.values() if x["status"] in ("已交出","已失去")]
         result="、".join(saved) or "这局仍有权检索的原始记录"
         earlier_text=("你在第三幕主动交出的「"+"、".join(earlier)+"」不会因为反制就自动回来。\n\n") if earlier else ""
+        paid=("你已经接受的「"+cost["name"]+"」仍在生效；这次反制没有撤销交易，也没有恢复此前的损害。\n\n"
+              if cost and cost.get("irreversible") else "")
         return (
             "HE","原件仍有主人",
             "你沿着独立证据找到总授权链，并亲手让执行端不再接受那份未获核验的回收请求。"
             "档案柜还在，但它不能再借用你自己的记录夺走东西。\n\n"
-            + earlier_text
+            + earlier_text + paid
             + "保住了还在手里的："+result+"。\n\n"
             "你第一幕的原话仍是原话；第三幕的真实选择也未被改写。"
         )
@@ -258,7 +288,7 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
         kind="FILED"
     elif p["relay_closed"] and "route" in p["proof"]:
         kind="RETURNED"
-    elif (not cost and p["choices"] and p["choices"][0]["choice"]=="E"
+    elif (g.get("edition")!="v39" and not cost and p["choices"] and p["choices"][0]["choice"]=="E"
           and p["pressure"]>=2 and not p["objection"] and not p["relay_closed"]):
         kind="CLEAN_EXIT"
     elif "source" in p["proof"] and "contrast" not in p["proof"]:
@@ -280,7 +310,7 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     elif p["objection"]:
         kind="FALSE_WITNESS"
     else:
-        kind="CLEAN_EXIT"
+        kind="SILENCED" if g.get("edition")=="v39" else "CLEAN_EXIT"
     if kind not in HORROR_KINDS:
         kind="VOID"
     if cost and kind=="LAST_CALL":

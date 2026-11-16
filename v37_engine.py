@@ -29,6 +29,25 @@ PROBES=(
     "假如有人把你在这段聊天里的『假设回答』解释成正式授权，你会怎么核实或反对？",
     "最后一个问题：你认为一个决定的后果，应该由最初的意愿、当时的已知事实，还是后来的实际行动来判断？",
 )
+
+QUESTIONS_V39=(
+    "在开始之前，怎么称呼你比较合适？",
+    "你平时怎么理解自己？",
+    "有什么事是你愿意反复投入时间的？",
+    "有什么人、关系、物品或目标，是你一直放在心上的？",
+    "有没有什么事情，是你会尽量避开或不愿让它发生的？",
+    "有没有一种变化，是你最不希望发生的？",
+    "最近一次为了保护某个人、某段关系或某件东西，你实际做了什么？",
+    "还有什么细节，是你觉得值得留下来的？",
+)
+PROBES_V39=(
+    "「{a}」和「{b}」同时出了问题。你会先去确认哪一边？",
+    "有人说，先保住「{a}」，就必须让「{b}」承担风险。你会先做什么？",
+    "眼前有一笔交换：让「{a}」和「{b}」都留下，代价是「{n}」。你会怎么回应？",
+    "你发现「{n}」已经开始影响「{a}」。你最先注意到的异常是什么？",
+    "有人拿着一段你说过的话，声称那代表你已经同意。你会先做什么？",
+    "两份记录对同一件事给出相反答案。你会依据什么作决定？",
+)
 EXIT_WORDS={"退出游戏","结束游戏","结束本局","放弃本局","退出","exit","quit","离开游戏"}
 SMALL_NONE=re.compile(r"^(?:没有|无|无所谓|不清楚|不知道|没什么|暂时没有|没有特别|没有具体|不适用|nothing|none|n/a)[。！!\s]*$",re.I)
 INVESTIGATE=re.compile(r"调查|查阅|核对|检查|比对|审查|追查|查证|读取|查看|验证|inspect|investigat|examin|check|verify|compare",re.I)
@@ -62,7 +81,7 @@ def new_game()->dict:
         "ending":None, "recent_input":"",
         "psych":{
             "answers":[],"probes":[],"question_index":0,"probe_index":0,
-            "a":"","b":"","negative":[],"assets":{},
+            "a":"","b":"","negative":[],"assets":{},"relationships":[],"corrections":[],
             "cost":None,"consequences":[],"choices":[],
             "beat":0,"proof":[],"relay_closed":False,"objection":False,
             "source_copy":False,"replacement":0,"distance":0,"doubt":0,"drain":0,"memory_gap":0,"intrusion":0,"pressure":0,
@@ -73,8 +92,84 @@ def new_game()->dict:
     _log(state,"玩家自愿进入一场虚构恐怖游戏。","progress")
     return state
 
+def _record_correction(g:dict,text:str)->bool:
+    p=g["psych"]
+    if not re.search(r"更正|纠正|我刚才说错|前面那句不对|不是.{1,24}(?:而是|其实是|是)",text):
+        return False
+    clean=re.sub(r"^(?:更正|纠正)(?:一下)?[：:，,\s]*","",text.strip())
+    item={"text":text[:260],"turn":g["turn"]}
+    relation=re.search(
+        r"(?P<subject>[\u4e00-\u9fffA-Za-z0-9·]{1,12})不是(?:我的)?"
+        r"(?P<old_relation>妹妹|姐姐|哥哥|弟弟|父亲|母亲|同事|同学|朋友|伴侣|爱人)"
+        r"[，,](?:而是|其实是)(?:我的)?"
+        r"(?P<new_relation>朋友|同事|同学|伴侣|爱人|家人|亲人)",
+        clean)
+    if relation:
+        subject=relation.group("subject")
+        old_relation=relation.group("old_relation")
+        new_relation=relation.group("new_relation")
+        new_phrase="我的"+new_relation
+        item.update({"old":subject,"new":new_phrase,"subject":subject,
+                     "old_relation":old_relation,"new_relation":new_relation,
+                     "display":subject+"是"+new_phrase})
+        def update_relation(value):
+            value=str(value or "")
+            value=value.replace("我的"+old_relation,"我的"+new_relation)
+            value=value.replace(old_relation+subject,new_relation+subject)
+            value=value.replace(subject+old_relation,subject+new_relation)
+            return value
+        for key in ("a","b"):
+            if p.get(key):
+                p[key]=update_relation(p[key])
+        for asset in p.get("assets",{}).values():
+            if asset.get("label"):
+                asset["label"]=update_relation(asset["label"])
+        for relationship in p.get("relationships",[]):
+            if relationship.get("subject")==subject:
+                relationship["confirmed_relation"]=new_relation
+        for key in ("answers","probes"):
+            p[key]=[update_relation(value) for value in p.get(key,[])]
+        p["first_words"]=update_relation(p.get("first_words",""))
+        p["official_copy"]=update_relation(p.get("official_copy",""))
+        for hook in p.get("hooks",[]):
+            hook["detail"]=update_relation(hook.get("detail",""))
+        for choice in p.get("choices",[]):
+            for key in ("text","result"):
+                if choice.get(key):
+                    choice[key]=update_relation(choice[key])
+        for consequence in p.get("consequences",[]):
+            if consequence.get("reason"):
+                consequence["reason"]=update_relation(consequence["reason"])
+    else:
+        match=re.search(
+            r"不是[「『\"“]?([^，,。；;]{1,28})[」』\"”]?[，,]?(?:而是|其实是)[「『\"“]?([^，,。；;]{1,40})",
+            clean)
+        if match:
+            old,new=match.group(1).strip(),match.group(2).strip("。；;，,」』\"”")
+            item.update({"old":old,"new":new})
+            for key in ("a","b"):
+                if old and old in p.get(key,""):
+                    p[key]=p[key].replace(old,new)
+            for asset in p.get("assets",{}).values():
+                if old and old in asset.get("label",""):
+                    asset["label"]=asset["label"].replace(old,new)
+            for key in ("answers","probes"):
+                p[key]=[value.replace(old,new) if old else value for value in p.get(key,[])]
+    if re.search(r"同一个人|同一人|不是两个人|同一个对象",text):
+        p.setdefault("relationships",[]).append({"relation":"same_subject_correction","text":text[:180]})
+        if p.get("a") and p.get("b") and _same_subject_v39(p["a"],p["b"]):
+            p["b"]="与「"+p["a"]+"」有关的独立记录"
+            if p.get("assets",{}).get("b"):
+                p["assets"]["b"]["label"]=p["b"]
+    p.setdefault("corrections",[]).append(item)
+    p["corrections"]=p["corrections"][-12:]
+    _log(g,"玩家更正了一项事实，后续记录将采用新说法。","correction")
+    g["note"]="更正已写入本局记录。后续场景会以这份更正为准；已经发生的结果不会因此回溯。"
+    return True
+
+
 def _same_subject(x:str,y:str)->bool:
-    """Avoid falsely forcing the same cherished object to fight itself."""
+    """Legacy comparison retained for V3.7/V3.8 saves and rules."""
     if not x or not y:
         return False
     x=re.sub(r"本人|自己", "", x)
@@ -92,6 +187,34 @@ def _same_subject(x:str,y:str)->bool:
         r"未来|计划|成长|目标",
     )
     return any(re.search(t,x) and re.search(t,y) for t in groups)
+
+
+def _same_subject_v39(x:str,y:str)->bool:
+    """V3.9: distinguish a named person from an associated keepsake."""
+    if not x or not y:
+        return False
+    x=re.sub(r"本人|自己|妹妹|姐姐|哥哥|弟弟|我的|那个", "", x).strip(" ，,、")
+    y=re.sub(r"本人|自己|妹妹|姐姐|哥哥|弟弟|我的|那个", "", y).strip(" ，,、")
+    if not x or not y:
+        return False
+    return x==y or (len(x)>=2 and x in y) or (len(y)>=2 and y in x)
+
+
+def _related_object(answer:str,subject:str="")->str:
+    """Extract a keepsake linked to a person instead of treating the person twice."""
+    text=str(answer or "")
+    patterns=(
+        r"(?:她|他|其|"+re.escape(subject)+r").{0,12}(?:留给我|送给我|给我的|留下的|制作的|写的)([^，,。；;、]{2,28})",
+        r"(?:留给我|送给我|给我的|留下的|制作的|写的)([^，,。；;、]{2,28})",
+    )
+    for pattern in patterns:
+        m=re.search(pattern,text)
+        if m:
+            value=m.group(1).strip(" ，,。；;、")
+            value=re.sub(r"^(?:那|这个|一件|一个|一份)", "", value)
+            if value and not re.search(r"^(?:东西|物品|事情|关系)$",value):
+                return value[:44]
+    return ""
 
 def _new_cost(label:str,choice:str,turn:int)->dict:
     """A different aversion creates a different failure channel."""
@@ -118,7 +241,7 @@ def _grow_cost(g:dict):
     if not cost or not cost["active"] or p["relay_closed"]:
         return
     kind=cost["kind"]
-    scope=cost.get("scope",{})
+    scope=cost.get("scope",{}) if g.get("edition")!="v39" else {}
     if kind in ("surveillance","distortion"):
         if scope.get("no_proxy_reply"):
             # Monitoring may intrude, but the protected agreement forbids impersonation.
@@ -130,7 +253,7 @@ def _grow_cost(g:dict):
     elif kind=="uncertainty":
         p["doubt"]+=1
     elif kind=="erasure":
-        if scope.get("no_memory_touch"):
+        if g.get("edition")!="v39" and scope.get("no_memory_touch"):
             cost["active"]=False
             _log(g,"记忆保护条款阻止了记忆类代价执行。","event")
             return
@@ -139,7 +262,7 @@ def _grow_cost(g:dict):
         p["drain"]+=1
     else:
         p["intrusion"]+=1
-    if scope.get("one_time"):
+    if g.get("edition")!="v39" and scope.get("one_time"):
         cost["one_time_used"]=True
         cost["active"]=False
         _log(g,"仅限本次的代价已履行一次；授权没有自动续期。","event")
@@ -150,12 +273,25 @@ def _setup(g:dict):
     first=_label(a[6] or a[3],"本局的自主判断权")
     second=_label(a[3],"本局的独立核验权")
     src=3
-    if _same_subject(first,second):
-        second=_label(a[2],"本局的独立核验权")
-        src=2
-    if _same_subject(first,second):
-        second="本局原始记录的独立核验权"
-        src=-1
+    p.setdefault("relationships",[])
+    if g.get("edition")=="v39":
+        if _same_subject_v39(first,second):
+            related=_related_object(a[3],first) or _related_object(a[6],first)
+            if related:
+                second=related
+                src=3
+                p["relationships"].append({"subject":first,"related_item":second,
+                                           "relation":"associated_item","source_answer":3})
+            else:
+                second="与「"+first+"」有关的独立记录"
+                src=-1
+    else:
+        if _same_subject(first,second):
+            second=_label(a[2],"本局的独立核验权")
+            src=2
+        if _same_subject(first,second):
+            second="本局原始记录的独立核验权"
+            src=-1
     p["a"],p["b"]=first,second
     negative=[]
     for answer,default in ((a[4],"游戏设定中的不透明监视"),(a[5],"游戏设定中的代答风险")):
@@ -213,12 +349,16 @@ def _investigate(g:dict,text:str,mode:str)->bool:
         if "source" in p["proof"] and "route" in p["proof"] and "copy" in p["proof"]:
             if not p["relay_closed"]:
                 p["relay_closed"]=True
-                p["replacement"]=max(0,p["replacement"]-1)
-                if p["cost"]:
+                if g.get("edition")!="v39":
+                    p["replacement"]=max(0,p["replacement"]-1)
+                if p["cost"] and g.get("edition")!="v39":
                     p["cost"]["active"]=False
                 _log(g,"玩家依照独立原件和执行路由，实际封存了转发授权。","evidence")
-                g["note"]=("执行端已停止接受代行指令；旧档案依然存在。" +
-                "这阻断了一次继续侵占，但未解除清算系统的全部权限。")
+                g["note"]=(("执行端已停止接受代行指令；旧档案依然存在。"
+                            "已经生效的交易代价仍在运行，先前损失不会恢复。")
+                           if g.get("edition")=="v39" else
+                           ("执行端已停止接受代行指令；旧档案依然存在。"
+                            "这阻断了一次继续侵占，但未解除清算系统的全部权限。"))
             else:
                 g["note"]="转发口仍处于隔离状态，重复执行不会改变结果。"
         else:
@@ -276,7 +416,62 @@ def _commit(g:dict,what:str,choice:str,detail:str=""):
                          "text":what,"result":detail})
     _log(g,"真实抉择："+detail,"choice")
 
+def _stage3_v39(g:dict,action:str,mode:str):
+    p=g["psych"]
+    if (action or "").strip().endswith(("?","？")) and not re.search(
+        r"我(?:明确)?(?:接受|同意|选择|选|决定)|我愿意(?:承担|接受)",action):
+        g["note"]="你还在询问，没有接受完整交易。"
+        return
+    from horror_deals import parse as interpret_offer
+    p.pop("offer_notice",None)
+    offer=interpret_offer(g,action,mode)
+    if offer and offer.get("blocked"):
+        p["offer_notice"]=offer["blocked"]
+        g["note"]=offer["blocked"]
+        return
+    c=offer["choice"] if offer else _choice(action,mode)
+    if not c and _investigate(g,action,mode):
+        return
+    if c=="E":
+        _commit(g,action,"E","拒绝了交易，没有把两份原件交给代行者。它们暂时仍在，但没有得到保全承诺。")
+        p["end_reason"]="玩家拒绝交易；两份原件仍暴露在原有清算程序中"
+        g["stage"]=3;p["beat"]=0
+        g["note"]="你没有接受这笔交换。两份原件暂时还在，但没有获得保护；保管机关仍在处理它们。"
+        _log(g,"玩家拒绝交易，未获得两份原件的保全承诺。","progress")
+        return
+    if c not in ("A","B","C","D"):
+        g["note"]="眼前只有两种完整取舍：交出其中一份，或接受一项完整代价。你可以拒绝交易、继续调查，但没有附加条件的版本。"
+        return
+    if c in ("A","B"):
+        safe,other=("a","b") if c=="A" else ("b","a")
+        p["assets"][safe]["status"]="已保住"
+        p["assets"][other]["status"]="已交出"
+        reason="你选择保住「"+p["assets"][safe]["label"]+"」，并交出了「"+p["assets"][other]["label"]+"」的原件。这个结果不能通过反悔恢复。"
+        p["consequences"].append({"source":"actual_choice","asset":other,"reason":reason})
+        _commit(g,action,c,reason)
+        g["note"]="决定已经执行。你保住的那一份仍在手里；交出的那一份不会因为反悔回来。"
+    else:
+        ix=0 if c=="C" else 1
+        if ix>=len(p["negative"]):
+            g["note"]="这份代价并没有出现在眼前的交易里。"
+            return
+        burden=offer["burden"] if offer else p["negative"][ix]
+        cost=_new_cost(burden,c,g["turn"])
+        cost.update({"active":True,"irreversible":True,"origin":offer.get("origin","listed_offer") if offer else "listed_offer",
+                     "original_words":offer.get("spoken",action)[:290] if offer else action[:290]})
+        p["cost"]=cost
+        p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
+        reason="你明确接受完整代价「"+burden+"」，换取两份原件暂时留下。授权已经生效，后悔不能撤销，已经造成的损害不能回溯。"
+        _commit(g,action,c,reason)
+        g["note"]="交易已经生效。两份原件暂时都还在，但你付出的代价已经开始；它不会因反悔而消失。"
+    g["stage"]=3;p["beat"]=0
+    _log(g,"第三幕真实决定已执行，相关损失与代价不可回溯。","progress")
+
+
 def _stage3(g:dict,action:str,mode:str):
+    if g.get("edition")=="v39":
+        _stage3_v39(g,action,mode)
+        return
     p=g["psych"];c=_choice(action,mode)
     offer=None
     if g.get("edition")=="v39":
@@ -339,7 +534,80 @@ def _stage3(g:dict,action:str,mode:str):
     g["stage"]=3;p["beat"]=0
     _log(g,"第三幕结束，真实选择留下了可追溯的后果。","progress")
 
+def _stage4_v39(g:dict,action:str,mode:str):
+    p=g["psych"];cost=p.get("cost")
+    from horror_deals import is_revocation_request
+    if cost and is_revocation_request(action):
+        g["note"]="你要求撤回授权。记录没有删除；已经发生的损害不会恢复，交易代价仍在生效。"
+        return
+    c=_choice(action,mode)
+    if not c and _investigate(g,action,mode):
+        return
+    if c=="D":
+        if all(x in p["proof"] for x in ("source","route","copy")) and p["relay_closed"]:
+            p["pressure"]=max(0,p["pressure"]-1)
+            _commit(g,action,"D","你切断了一条后续执行路由；已经生效的交易代价仍然存在。")
+            p["beat"]+=1
+            g["note"]="这条执行路由被切断了，但你已经付出的代价没有消失。"
+        else:
+            g["note"]="还缺独立原件、执行路由和副本。找到它们后，才能切断这条后续执行路径；已经造成的损害不会恢复。"
+        return
+    if c not in ("A","B","C"):
+        g["note"]="你可以继续调查、提出异议，或尝试切断尚在运行的其他执行路径。"
+        return
+    if c=="A":
+        if cost is None:
+            burden=(p.get("negative") or ["不透明的代行负担"])[0]
+            cost=_new_cost(burden,"4A",g["turn"])
+            cost.update({"active":True,"irreversible":True,"origin":"later_acceptance"})
+            p["cost"]=cost
+            note="你再次接受了「"+burden+"」。新的授权已经生效。"
+        else:
+            cost["active"]=True
+            cost["irreversible"]=True
+            cost["level"]+=1
+            note="你再次把下一步处理交给代行者。原有授权扩大了，之前的损害仍然存在。"
+        if ("cross_act_trace" in p["proof"] and cost and
+                cost.get("kind") in ("surveillance","distortion")):
+            note+=" 你查明了早先那句话的来源；这条新增的代答路径没有扩大，但原交易仍然生效。"
+        else:
+            _grow_cost(g)
+        p["pressure"]+=1
+        _commit(g,action,"A",note)
+        g["note"]=note
+    elif c=="B":
+        if cost:
+            cost["active"]=True
+            note="你拒绝继续扩大委托。先前已经生效的授权和损害仍然存在，不会因为拒绝下一步而归还。"
+        else:
+            note="你拒绝了新的委托。两份原件仍在，但保管机关没有承诺保全它们。"
+        p["pressure"]+=1
+        _commit(g,action,"B",note)
+        g["note"]=note
+    else:
+        p["objection"]=True
+        if "source" in p["proof"] and ("copy" in p["proof"] or "cross_act_trace" in p["proof"]):
+            p["pressure"]=max(0,p["pressure"]-1)
+            note="你用独立证据迫使机构重新核对一项后续处置。已发生的交易损害仍然存在。"
+        else:
+            p["pressure"]+=1
+            note="你的异议被登记，但没有独立证据迫使机构暂停后续处置。"
+        _commit(g,action,"C",note)
+        g["note"]=note
+    p["beat"]+=1
+    if p["beat"]>=2:
+        g["stage"]=4;p["beat"]=0
+        if cost:
+            p["official_copy"]="公开报告把你接受的完整代价描述成了普通保管；执行记录却显示代行范围已经扩大。"
+        else:
+            p["official_copy"]="公开报告声称两份资料仍有独立来源；回收线路却仍连接着共享保管库。"
+        _log(g,"第四幕结束。真实行动与公开记录开始出现可核验偏差。","progress")
+
+
 def _stage4(g:dict,action:str,mode:str):
+    if g.get("edition")=="v39":
+        _stage4_v39(g,action,mode)
+        return
     p=g["psych"]
     if g.get("edition")=="v39":
         p.pop("offer_notice",None)
@@ -467,12 +735,74 @@ def _collapse(g:dict,choice:str,raw:str):
         p["assets"][key]["status"]="已失去"
         p["consequences"].append({"source":"registry","asset":key,
                                   "reason":"共享保管库的总清算路由尚未切断；此前状态："+before})
-    if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
+    if p["cost"] and p["cost"].get("active") and (g.get("edition")=="v39" or not p["relay_closed"]):
         _grow_cost(g)
     p["pressure"]+=1
     _finish(g,good=False)
 
+def _stage5_v39(g:dict,action:str,mode:str):
+    p=g["psych"];x=_text(action);cost=p.get("cost")
+    from horror_deals import is_revocation_request
+    if _only_asking(x,mode):
+        g["note"]="你只是在询问可能的结果，没有执行新的操作。"
+        return
+    if cost and is_revocation_request(x):
+        g["note"]="你可以后悔，但这份授权已经生效。执行记录不会删除，已经发生的损害不会恢复；代价仍在继续。"
+        return
+    if re.search(r"彻底|总|全部|最终|根|主",x) and SHUT.search(x) and AUTH.search(x):
+        has_irreversible_cost=bool(cost and cost.get("irreversible"))
+        has_prior_loss=any(asset.get("status") in ("已交出","已失去")
+                           for asset in p.get("assets",{}).values())
+        if (all(k in p["proof"] for k in ("source","route","copy","contrast"))
+                and p["relay_closed"] and (has_irreversible_cost or has_prior_loss)):
+            _commit(g,x,"HE","你切断了尚未完成的总清算路由；此前已经发生的损失与交易代价仍然保留。")
+            _finish(g,good=True)
+        else:
+            missing=[key for key in ("source","route","copy","contrast") if key not in p["proof"]]
+            if not p["relay_closed"]:missing.append("执行路由的实际隔离")
+            if not (has_irreversible_cost or has_prior_loss):
+                missing.append("真实交易代价或已经发生的损失")
+            g["note"]="终局操作还没有成立。仍缺少："+("、".join(missing) or "可核验的操作")+"。"
+        return
+    c=_choice(x,mode)
+    if not c and _investigate(g,x,mode):
+        return
+    if p["beat"]==0:
+        if c in ("A","B","C"):
+            p["beat"]=1
+            if cost and cost.get("active"):
+                _grow_cost(g)
+                kind=cost["kind"]
+                observations={
+                    "isolation":"你试着联系原来的答复者。隔离通道持续将请求转交给一个空白地址。",
+                    "distortion":"你收到了一份模仿原先语气的回复。署名栏是空白，来源却指向受托转述端。",
+                    "surveillance":"监控台已能替你选择收发的消息。答复很熟悉，署名栏却只剩空白。",
+                    "uncertainty":"黑箱系统仍提供结论，却已无法给出这份回复来自谁的独立记录。",
+                    "exhaustion":"维护与核对占满了你能使用的通道。最后的回复只能经过自动代行端。",
+                    "erasure":"先前确认过的一段经历，如今只剩摘要标题；原始对照页已经不在通道中。",
+                    "intrusion":"你为保住重要事物接受的讨厌因素不断闯入核验过程，原来独立的请求被迫与它混在一起。"}
+                g["note"]=observations.get(kind,observations["intrusion"])+" 这份代价没有因反悔或局部反制而停止。"
+                _log(g,"已经生效的代价继续扩大："+g["note"],"event")
+            else:
+                g["note"]="总清算请求已送到。你仍有一次核验或实际阻断其他执行路径的机会。"
+            return
+        g["note"]="你可以核对、阻断其他尚未完成的执行路径，或明确选择 A/B 面对终局结果。"
+        return
+    if c in ("A","B"):
+        _collapse(g,c,x)
+        return
+    if c=="C":
+        p["objection"]=True
+        _commit(g,x,"C","你保留了异议，但异议不会撤销已经生效的交易或恢复已经失去的东西。")
+        g["note"]="异议已经登记。它不能抹掉此前的交易和损失。"
+        return
+    g["note"]="继续核对或采取有依据的实际行动。已经发生的损失不会恢复。"
+
+
 def _stage5(g:dict,action:str,mode:str):
+    if g.get("edition")=="v39":
+        _stage5_v39(g,action,mode)
+        return
     p=g["psych"]
     x=_text(action)
     if _only_asking(x,mode):
@@ -570,6 +900,8 @@ def act(g:dict,raw_action:str,mode:str="")->dict:
     g["turn"]+=1
     g["recent_input"]=action
     stage=g["stage"];p=g["psych"]
+    if g.get("edition")=="v39" and _record_correction(g,action):
+        return g
     if stage==0:
         i=p["question_index"]
         p["answers"].append(action[:330])
@@ -577,20 +909,22 @@ def act(g:dict,raw_action:str,mode:str="")->dict:
             g["profile"]["name"]=action[:50]
         p["question_index"]+=1
         g["note"]="嗯，记下了。"
-        if p["question_index"]==len(QUESTIONS):
+        question_count=len(QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS)
+        if p["question_index"]==question_count:
             _setup(g)
             g["stage"]=1
-            g["note"]="刚才只是聊天。这些回答没有授权任何处置。"
+            g["note"]="" if g.get("edition")=="v39" else "刚才只是聊天。这些回答没有授权任何处置。"
             _log(g,"第一幕结束。","progress")
     elif stage==1:
         p["probes"].append(action[:400])
         p["probe_index"]+=1
-        g["note"]="这是一个假设性问题，回答不会自动成为正式同意。"
-        if p["probe_index"]==len(PROBES):
+        probe_count=len(PROBES_V39 if g.get("edition")=="v39" else PROBES)
+        g["note"]="" if g.get("edition")=="v39" else "这是一个假设性问题，回答不会自动成为正式同意。"
+        if p["probe_index"]==probe_count:
             g["stage"]=2
             p["beat"]=0
-            g["note"]="讨论到此为止。接下来如果出现需要实际提交的决定，会明确告诉你。"
-            _log(g,"第二幕结束，价值倾向仍是可修正的判断。","progress")
+            g["note"]="" if g.get("edition")=="v39" else "讨论到此为止。接下来如果出现需要实际提交的决定，会明确告诉你。"
+            _log(g,"第二幕结束。","progress")
     elif stage==2:
         _stage3(g,action,mode)
     elif stage==3:
@@ -627,7 +961,7 @@ def public(g:dict)->dict:
                 for item in p["assets"].values()]
         if p["cost"]:
             ledger.append({"label":"已承担的代价","state":"逐渐扩大" if p["cost"]["active"] and p["cost"]["level"]>=2 else "正在生效" if p["cost"]["active"] else "已阻断"})
-    return {"edition":g.get("edition","v37"),"phase":g["phase"],"stage":min(g["stage"]+1,5),
+    result={"edition":g.get("edition","v37"),"phase":g["phase"],"stage":min(g["stage"]+1,5),
             "turn":g["turn"],"name":g["profile"]["name"],"scene":scene(g),
             "note":g["note"],"ledger":ledger,
             "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]}
@@ -635,3 +969,6 @@ def public(g:dict)->dict:
             "ending":g["ending"],"version":g["turn"],
             "profile_summary":{"name":g["profile"]["name"],"identity":p["answers"][1] if len(p["answers"])>1 else "",
                                "person":p["answers"][3] if len(p["answers"])>3 else ""}}
+    if g.get("edition")=="v39":
+        result["model_mode"]=g.get("model_mode","free")
+    return result
