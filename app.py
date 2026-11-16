@@ -90,14 +90,24 @@ def health():
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):
-    try:g=initialize(payload.profile)
+    profile=dict(payload.profile)
+    if profile.get("edition")=="v39":
+        from horror_director import configured
+        mode=profile.get("model_mode","free")
+        if mode not in ("free","model"):
+            raise HTTPException(status_code=422,detail="本局模式只能选择免费模式或语义模型模式。")
+        if mode=="model" and not configured():
+            raise HTTPException(status_code=503,detail="语义模型尚未配置或当前不可用。请选择免费模式，或稍后重试。")
+        profile["model_mode"]=mode
+    try:g=initialize(profile)
     except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":
         from horror_director import render
         render(g)
     if g.get("edition")=="v39":
         from horror_planner import create
-        create(g)
+        try:create(g)
+        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
     token=secrets.token_urlsafe(32)
     with db(True) as conn:
         # Expire old sessions after 14 days; nothing is transmitted to analytics.
@@ -120,18 +130,27 @@ def action(payload:Action,x_session:str=Header(default="")):
     if version!=payload.version:
         raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
     action_text,action_mode=payload.action,payload.mode
-    if g.get("edition") in ("v38","v39"):
-        from horror_director import interpret,render
+    if g.get("edition")=="v38":
+        from horror_director import interpret
         action_text,action_mode=interpret(g,action_text,action_mode)
+    elif g.get("edition")=="v39":
+        from horror_director import configured,interpret,model_enabled
+        if g.get("model_mode")=="model" and not configured():
+            raise HTTPException(status_code=503,detail="本局语义模型暂时不可用；没有切换到免费模式，本轮未执行。")
+        if model_enabled(g):
+            try:action_text,action_mode=interpret(g,action_text,action_mode)
+            except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
     old_stage=g["stage"]
     try:act(g,action_text,action_mode)
     except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":
+        from horror_director import render
         render(g)
     if g.get("edition")=="v39":
         from horror_planner import remember,create
         remember(g,action_text,old_stage,payload.action,action_mode)
-        create(g)
+        try:create(g)
+        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
     with db(True) as conn:
