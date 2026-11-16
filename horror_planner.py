@@ -90,6 +90,7 @@ def fallback(g):
             "hook_id":hook,"question":question}
 
 def _facts(g):
+    from v37_engine import QUESTIONS
     p=g["psych"];stage=g["stage"]
     active=_eligible(g)
     return {
@@ -171,9 +172,12 @@ def remember(g,raw:str,previous_stage:int):
         from v37_engine import QUESTIONS,PROBES
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
         if i<0:return
-        prompt=(QUESTIONS[i] if previous_stage==0 else PROBES[i].format(
-            a=p.get("a",""),b=p.get("b",""),
-            n=(p.get("negative") or [""])[0]))
+        plan=p.get("plan") or {}
+        planned=plan.get("question","") if plan.get("stage")==previous_stage else ""
+        prompt=(planned or QUESTIONS[i] if previous_stage==0 else
+                planned or PROBES[i].format(
+                a=p.get("a",""),b=p.get("b",""),
+                n=(p.get("negative") or [""])[0]))
         p["question_log"].append({"act":previous_stage+1,"asked":prompt[:160],
                                   "answered":value,"turn":g["turn"]})
         if previous_stage==0 and i not in (0,7):
@@ -184,8 +188,8 @@ def remember(g,raw:str,previous_stage:int):
         else:kind=None
     elif previous_stage in (2,3,4) and p.get("choices"):
         last=p["choices"][-1]
-        kind="actual_choice" if last.get("act")==previous_stage+1 and
-                                  last.get("text")==value else None
+        kind=("actual_choice" if last.get("act")==previous_stage+1 and
+              last.get("text")==value else None)
     else:kind=None
     if not kind:return
     marker=f"{previous_stage}/{g['turn']}/{kind}"
@@ -212,7 +216,7 @@ def _callback(g,card):
                     "这次它确实帮你度过了眼前的危险。"
                     "现在另一份要求正沿着那条相同的路径到来。")
         return ("你在前面的真实决定还在起作用：「"+detail+"」。"
-                "它曾让你保住一件事；现在另一件事正受到那笔代价的影响。")
+                "当时形成的结果没有消失；另一件事现在也受到了它的影响。")
     if kind=="hypothetical_boundary":
         return ("有人翻出了你曾经讨论过的一种可能：「"+detail+"」。"
                 "它不是签名，却暴露了你习惯先防守哪一边。"
