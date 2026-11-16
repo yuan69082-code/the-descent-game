@@ -45,12 +45,18 @@ def s(value: Any, max_len: int=280) -> str:
 
 
 def initialize(profile: dict[str, Any]) -> dict[str, Any]:
-    if profile.get("edition") in ("v37","v38"):
+    if profile.get("edition") in ("v37","v38","v39"):
         from v37_engine import new_game
         g=new_game()
         if profile.get("edition")=="v38":
             g["edition"]="v38"
             g["director"]={"mode":"rules","scene":None,"calls":0}
+        elif profile.get("edition")=="v39":
+            g["edition"]="v39"
+            g["psych"]["hooks"]=[]
+            g["psych"]["question_log"]=[]
+            g["psych"]["plan"]=None
+            g["psych"]["literal_actions"]=[]
         return g
     required = ["name", "identity", "person", "bond", "memory", "principle", "fear"]
     p = {k:s(profile.get(k), 260 if k not in ("name", "person") else 70) for k in required}
@@ -286,7 +292,7 @@ def _base_scene(g:dict) -> dict:
 
 def scene(g:dict) -> dict:
     """Blend original chapter with verified cross-chapter consequences."""
-    if g.get("edition") in ("v37","v38"):
+    if g.get("edition") in ("v37","v38","v39"):
         from v37_engine import scene as v37_scene
         return v37_scene(g)
     result=_base_scene(g)
@@ -836,7 +842,7 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
 
 def act(g:dict, raw_action:str, mode:str="") -> dict:
     """One consistent causality wrapper for every action in all five chapters."""
-    if g.get("edition") in ("v37","v38"):
+    if g.get("edition") in ("v37","v38","v39"):
         from v37_engine import act as v37_act
         return v37_act(g,raw_action,mode)
     text=s(raw_action,700)
@@ -857,11 +863,14 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
 
 def public(g:dict)->dict:
     """Only public data. Never expose flags, clues (keys), intent map, or game rules."""
-    if g.get("edition") in ("v37","v38"):
+    if g.get("edition") in ("v37","v38","v39"):
         from v37_engine import public as v37_public
         v=v37_public(g)
         if g.get("edition")=="v38":
             from horror_director import paint
+            return paint(g,v)
+        if g.get("edition")=="v39":
+            from horror_planner import paint
             return paint(g,v)
         return v
     p=g["profile"]
