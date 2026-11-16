@@ -119,7 +119,11 @@ def ending(g:dict, kind:str|None=None, how:str=""):
     if g["phase"]=="ended":
         return
     # A real closing decision settles outstanding orders; leaving voluntarily never punishes.
-    if kind != "EXIT" and "story_v35" in g:
+    if "story_v35" in g and kind=="HE":
+        for order in list(story35.ensure(g)["pending"]):
+            story35.win(g,order["key"],"授权链已被实际切断，尚未执行的处置失去依据。")
+        story35.ensure(g)["pending"].clear()
+    elif kind != "EXIT" and "story_v35" in g:
         story35.settle(g,force=True)
     if kind is None:
         kind=pick_horror_ending(g)
@@ -155,7 +159,9 @@ def ending(g:dict, kind:str|None=None, how:str=""):
 def threatened(g:dict, exclude=()):
     """The initial fear is a hypothesis; actual remaining assets constrain the threat."""
     preference = [active_focus(g)] + g["profile"]["rank"]
-    return next((v for v in preference if v in VALUES and not gone(g, v) and v not in exclude), None)
+    saved={x["key"] for x in g.get("story_v35",{}).get("wins",[])}
+    return next((v for v in preference if v in VALUES and not gone(g, v)
+                 and v not in exclude and v not in saved), None)
 
 
 def counterplays(g:dict)->dict:
@@ -668,8 +674,9 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             return g
         g["flags"]["mail_committed"]=True
         if story35.stage_deferred(g,0,move):
-            advance(g,"09-F 被纳入待执行队列。机构宣称关系已经终止，但这项夺取尚有可供核验的空隙。")
-            g["note"]="你提交的原话没有真正送达。关系凭据进入争议，尚未失效；机构正在准备单方封存。"
+            advance(g,"09-F 收到了信件。登记栏亮起『已受理』，通话线路接通了极短的一瞬。")
+            g["note"]="纸张被收走。听筒里传来一句模糊的『看到了』，随即断线。"
+            "系统把信件标为『受理完成』。它没有展示谁在另一端确认。"
             return g
         lose(g,"relation",f"你提交的文字成为关系终止的确认件。关于{p['person']}的关系见证资格已失效")
         advance(g,"文书 09-F 被执行。系统没有发出那封信；它只把信送进了封存槽。")
@@ -808,6 +815,8 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
         return story35.final_action(g,text)
     move=intent(text,(mode or "").strip().lower())
     snapshot=causal_begin(g,text,mode or "",move)
+    if "story_v35" in g:
+        snapshot["before_wins"]=len(story35.ensure(g)["wins"])
     result=_act_impl(g,raw_action,mode)
     causal_finish(g,snapshot)
     if "story_v35" in g:
@@ -821,8 +830,10 @@ def public(g:dict)->dict:
     result={"phase":g["phase"],"scene":scene(g), "stage":min(g["stage"]+1,5),
          "turn":g["turn"],"name":("身份待验证" if gone(g,"self") else p["name"]),"note":g["note"],
          "ledger":[{"label":VALUES[x],"state":"失效" if gone(g,x) else
-                    ("争议中" if "story_v35" in g and any(v["key"]==x for v in story35.ensure(g)["pending"]) else
-                     ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存"))}
+                    ("受理中" if g["stage"]==1 and x=="relation" and "story_v35" in g
+                     and any(v["key"]==x for v in story35.ensure(g)["pending"]) else
+                     ("争议中" if "story_v35" in g and any(v["key"]==x for v in story35.ensure(g)["pending"]) else
+                     ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存")))}
                    for x in p["rank"]],
          "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]} for e in g["history"][-5:] if e["type"]!="player"],
          "ending":g["ending"],"version":g["turn"],
