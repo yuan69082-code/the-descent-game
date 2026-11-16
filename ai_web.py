@@ -40,7 +40,7 @@ def document(text: str, status: int = 200):
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
-    label="V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
+    label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
     lines=["THE DESCENT "+label+" / AI 纯文字游玩通道",
            "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
            f"会话号：{token}",f"本轮版本：{version}",
@@ -62,7 +62,7 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
     if sc.get("footer"):lines.extend(["",sc["footer"]])
     if v.get("note") and state.get("edition")!="v38":
         lines.extend(["","游戏反馈："+v["note"]])
-    if state.get("edition")!="v38":
+    if state.get("edition") not in ("v38","v39"):
         ledger_label="本局记录：" if state.get("edition")=="v37" else "可用资格："
         lines.extend(["",ledger_label+"；".join(x["label"]+":"+x["state"] for x in v["ledger"])])
     lines.extend(["", "【继续】",
@@ -108,7 +108,7 @@ def register_ai_routes(app, db, token_key, get_session):
             profile["vow"]=q.get("vow","")
             profile["choice"]=q.get("choice","")
         else:
-            profile={"edition":"v38"}
+            profile={"edition":"v39"}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:
@@ -116,6 +116,9 @@ def register_ai_routes(app, db, token_key, get_session):
         if g.get("edition")=="v38":
             from horror_director import render
             render(g)
+        elif g.get("edition")=="v39":
+            from horror_planner import create
+            create(g)
         token=secrets.token_urlsafe(32)
         with db(True) as conn:
             conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
@@ -141,15 +144,20 @@ def register_ai_routes(app, db, token_key, get_session):
             if v!=version:
                 return document("此行动地址已经过期，旧行动没有再次执行。\n\n"+view(g,sid,version))
             actual,actual_mode=text,mode
-            if g.get("edition")=="v38":
+            if g.get("edition") in ("v38","v39"):
                 from horror_director import interpret,render
                 actual,actual_mode=interpret(g,text,mode)
+            previous_stage=g["stage"]
             try:
                 act(g,actual,actual_mode)
             except ValueError as e:
                 return document("这项行动没有执行："+str(e)+"\n\n"+view(g,sid,version),422)
             if g.get("edition")=="v38":
                 render(g)
+            elif g.get("edition")=="v39":
+                from horror_planner import remember,create
+                remember(g,actual,previous_stage,text)
+                create(g)
             with db(True) as conn:
                 cur=conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? "
                                 "WHERE token_hash=? AND version=?",
