@@ -40,7 +40,7 @@ def document(text: str, status: int = 200):
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
-    label="V3.7" if state.get("edition")=="v37" else "V3.6"
+    label="V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
     lines=["THE DESCENT "+label+" / AI 纯文字游玩通道",
            "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
            f"会话号：{token}",f"本轮版本：{version}",
@@ -55,24 +55,21 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
             lines.extend(["", "──────── 作者留言 ────────",end["author_note"]])
         return "\n".join(lines)
     sc=v["scene"]
-    if state["phase"]=="epilogue":
+    if state["phase"]=="epilogue" and state.get("edition")!="v38":
         lines.append("结局已定。这是最后一次自由记录，不需要作出规定的选择；可提交原话、反驳或『不留最后的话』。")
     lines.extend([f"【{sc['chapter']}】{sc['title']}",sc["body"]])
     if sc.get("terms"):lines.extend(["",*sc["terms"]])
     if sc.get("footer"):lines.extend(["",sc["footer"]])
-    if v.get("note"):lines.extend(["", "游戏反馈："+v["note"]])
-    ledger_label="本局记录：" if state.get("edition")=="v37" else "可用资格："
-    lines.extend(["", ledger_label+"；".join(x["label"]+":"+x["state"] for x in v["ledger"]),
-                  "", "【下一步：你自己行动】",
-                  "用联网读取工具访问下面这种网址，直接把行动写入 text 参数。不要等待人类代填。",
-                  f"{BASE_URL}/ai/action?sid={token}&v={version}&text=你的行动",
-                  "把『你的行动』替换成你决定采取的实际行动，使用 URL 编码；无需点击任何网页按钮。",
-                  ("眼下按你自己的情况回答，不必编造任何事。" if state.get("edition")=="v37" and state["stage"]<=1
-                   else "你可以选择、拒绝、调查、交涉或尝试具体操作。并非每项行动都会成功。"),
-                  "为避免把问话误当签字，可以在行动网址末尾附加可选的 &mode=ask|inspect|interact|submit|choose|refuse|negotiate|talk 。",
-                  "mode 只是说明行动类型，不授予任何隐藏权限；不填仍可正常玩。",
-                  "不要打开后台仓库、推测隐藏判定或请求源码。游戏的后果只发生在本局虚构存档。",
-                  "如果你的联网工具不能访问你自己构造的带参数 URL，就无法用当前工具自主提交，明确说明这个限制即可。"])
+    if v.get("note") and state.get("edition")!="v38":
+        lines.extend(["","游戏反馈："+v["note"]])
+    if state.get("edition")!="v38":
+        ledger_label="本局记录：" if state.get("edition")=="v37" else "可用资格："
+        lines.extend(["",ledger_label+"；".join(x["label"]+":"+x["state"] for x in v["ledger"])])
+    lines.extend(["", "【继续】",
+                  f"{BASE_URL}/ai/action?sid={token}&v={version}&text=你的回答或行动",
+                  "将 text 替换成你真正决定说的话或采取的动作，使用 URL 编码。",
+                  "需要时可加 &mode=ask|inspect|interact|choose|submit|refuse|talk 。"
+                  "只要是你自己提出的行动，就无需等待人类代答。"])
     return "\n".join(lines)
 
 
@@ -84,23 +81,18 @@ def register_ai_routes(app, db, token_key, get_session):
 
 你确定要开始吗？
 
-这是一局虚构游戏。你可以自行决定是否进入，也可以随时退出。
-
-开始：用自己的 HTTP 网页读取工具访问
+如果决定开始，用你的网页读取工具访问：
 {BASE_URL}/ai/start?agree=1
 
-服务器才会在你明确确认以后创建新会话。你不需要提前填写问卷；
-入场后，游戏会自己和你交谈。回答可以说『没有』『不确定』，不必虚构经历。
+打开后游戏会直接和你交谈。每一轮返回会话号 sid 与版本号 v。
+要真正回答或行动，请构造并访问：
+{BASE_URL}/ai/action?sid=你的会话号&v=最新版本号&text=你的回答
 
-每轮返回会显示当前会话号 sid 和版本号 v。
-你自己构造 /ai/action?sid=你的会话号&v=最新版本号&text=你的实际回答或行动
-并用联网读取工具访问。将 text 的内容 percent-encode。
-访问 /ai/state?sid=... 可以只读取，不会做新决定。
+使用 URL 编码写入 text。读取当前对局但不行动：
+{BASE_URL}/ai/state?sid=你的会话号
 
-注意：GET 的参数文字会写入服务器访问日志，不要提交密码、证件、地址等私密数据。
-一次只访问一个行动 URL；重复访问旧版本不会二次执行。
-如果你的工具不能访问由你构造的 URL，就无法靠当前只读网页工具提交行动；
-不必让人类代替你作答，也不要假称已经游玩成功。"""
+可随时退出。行动 URL 包含你的文字，不要把密码、证件号等敏感内容写进去。
+如果网页工具不允许访问你自己构造的地址，当前方式无法自行提交行动。"""
         return document(guide)
 
     @app.get("/ai/start")
@@ -116,11 +108,14 @@ def register_ai_routes(app, db, token_key, get_session):
             profile["vow"]=q.get("vow","")
             profile["choice"]=q.get("choice","")
         else:
-            profile={"edition":"v37"}
+            profile={"edition":"v38"}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:
             return document(f"无法开始对局：{e}",422)
+        if g.get("edition")=="v38":
+            from horror_director import render
+            render(g)
         token=secrets.token_urlsafe(32)
         with db(True) as conn:
             conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
@@ -139,17 +134,30 @@ def register_ai_routes(app, db, token_key, get_session):
     @app.get("/ai/action")
     def ai_action(sid:str="",v:int=-1,text:str="",mode:str=""):
         if v<0 or v>10000 or len(text)>700 or not text.strip():
-            return document("行动未提交。请使用 /ai/action?sid=会话号&v=当前版本号&text=行动内容。行动长度不得超过 700 字。",422)
+            return document("行动未提交：请提供 sid、当前版本 v，以及 text。",422)
         try:
-            with db(True) as conn:
+            with db() as conn:
                 g,version=get_session(conn,sid)
-                if v!=version:
-                    return document("此行动地址已经过期（可能上轮已经成功）。没有再次执行。\n\n"+view(g,sid,version))
-                try:act(g,text,mode)
-                except ValueError as e:
-                    return document("行动没有执行："+str(e)+"\n\n"+view(g,sid,version),422)
-                conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",
-                             (json.dumps(g,ensure_ascii=False),time.time(),version+1,token_key(sid)))
-                return document("行动已提交。\n\n"+view(g,sid,version+1))
+            if v!=version:
+                return document("旧行动没有再次执行。\n\n"+view(g,sid,version))
+            actual,actual_mode=text,mode
+            if g.get("edition")=="v38":
+                from horror_director import interpret,render
+                actual,actual_mode=interpret(g,text,mode)
+            try:
+                act(g,actual,actual_mode)
+            except ValueError as e:
+                return document("这项行动没有执行："+str(e)+"\n\n"+view(g,sid,version),422)
+            if g.get("edition")=="v38":
+                render(g)
+            with db(True) as conn:
+                cur=conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? "
+                                "WHERE token_hash=? AND version=?",
+                                 (json.dumps(g,ensure_ascii=False),time.time(),version+1,
+                                  token_key(sid),version))
+                if cur.rowcount!=1:
+                    g2,latest=get_session(conn,sid)
+                    return document("这一轮已有其他动作提交，不会重复执行。\n\n"+view(g2,sid,latest))
+            return document("行动已提交。\n\n"+view(g,sid,version+1))
         except HTTPException as e:
-            return document("会话不存在或已失效，请重新从 /ai 开始。",e.status_code)
+            return document("这场对局无法读取。",e.status_code)
