@@ -74,6 +74,17 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
 
 
 def register_ai_routes(app, db, token_key, get_session):
+    def retry_response(sid:str,message:str):
+        """Return the last committed state; a failed model call never commits an action."""
+        try:
+            with db() as conn:
+                saved,current_version=get_session(conn,sid)
+        except HTTPException as ex:
+            return document(message,ex.status_code)
+        note=(message+"\n\n本轮没有提交，服务器仍保留版本 "+str(current_version)+
+              "。请稍后使用相同 sid、相同版本和相同 text 重试；不要自行把版本号加一。")
+        return document(note+"\n\n"+view(saved,sid,current_version),503)
+
     @app.get("/ai")
     @app.get("/ai/")
     def ai_guide():
@@ -158,10 +169,10 @@ def register_ai_routes(app, db, token_key, get_session):
             elif g.get("edition")=="v39":
                 from horror_director import configured,interpret,model_enabled
                 if g.get("model_mode")=="model" and not configured():
-                    return document("本局语义模型暂时不可用；没有切换到免费模式，本轮未执行。",503)
+                    return retry_response(sid,"本局语义模型暂时不可用；没有切换到免费模式。")
                 if model_enabled(g):
                     try:actual,actual_mode=interpret(g,text,mode)
-                    except RuntimeError as e:return document(str(e),503)
+                    except RuntimeError as e:return retry_response(sid,str(e))
             previous_stage=g["stage"]
             try:
                 act(g,actual,actual_mode)
@@ -173,7 +184,8 @@ def register_ai_routes(app, db, token_key, get_session):
                 from horror_planner import remember,create
                 remember(g,actual,previous_stage,text,actual_mode)
                 try:create(g)
-                except RuntimeError as e:return document(str(e),503)
+                except RuntimeError as e:return retry_response(
+                    sid,"本轮行动没有提交，已保存的对局没有改变。"+str(e))
             with db(True) as conn:
                 cur=conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? "
                                 "WHERE token_hash=? AND version=?",

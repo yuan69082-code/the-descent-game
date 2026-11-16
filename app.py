@@ -136,10 +136,11 @@ def action(payload:Action,x_session:str=Header(default="")):
     elif g.get("edition")=="v39":
         from horror_director import configured,interpret,model_enabled
         if g.get("model_mode")=="model" and not configured():
-            raise HTTPException(status_code=503,detail="本局语义模型暂时不可用；没有切换到免费模式，本轮未执行。")
+            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。本局语义模型暂时不可用；没有切换到免费模式，请稍后重试同一行动。")
         if model_enabled(g):
             try:action_text,action_mode=interpret(g,action_text,action_mode)
-            except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
+            except RuntimeError as ex:
+                raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
     old_stage=g["stage"]
     try:act(g,action_text,action_mode)
     except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
@@ -150,7 +151,8 @@ def action(payload:Action,x_session:str=Header(default="")):
         from horror_planner import remember,create
         remember(g,action_text,old_stage,payload.action,action_mode)
         try:create(g)
-        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
+        except RuntimeError as ex:
+            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
     with db(True) as conn:
