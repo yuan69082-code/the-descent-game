@@ -192,6 +192,10 @@ def interpret(g,raw,mode=""):
     if not configured() or g.get("edition") not in ("v38","v39") or g["stage"]<2:
         return raw,mode
     text=raw.strip()
+    if g.get("edition")=="v39" and g["stage"]==2:
+        from horror_deals import parse as read_offer
+        if read_offer(g,text,mode) is not None:
+            return raw,mode
     if SIMPLE.match(text) or text in ("退出","结束游戏","退出游戏"):
         return raw,mode
     if mode in ("choose","refuse","ask","talk","negotiate","submit"):

@@ -312,5 +312,8 @@ def paint(g,result):
         # The server's authoritative options stay exactly as the engine provided.
         scene["footer"]=""
         result["note"]=""
+    notice=p.get("offer_notice")
+    if notice and stage in (2,3) and g["phase"]=="game":
+        scene["body"]=notice+"\n\n"+scene["body"]
     result["scene"]=scene
     return result

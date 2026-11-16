@@ -67,6 +67,11 @@ def scene(g,card):
         opening=variants.get(mode,variants["encroachment"])
         if cost:
             effect=_cost_image(p)
+            scope=cost.get("scope",{})
+            if scope.get("no_proxy_reply"):
+                effect+=" 你们先前明明约定过：不允许它代替你回答。它只能看见，不能冒充你的声音。"
+            if scope.get("no_expand"):
+                effect+=" 你还保留着禁止扩权的那条限制。对方想修改它，必须再征求你的同意。"
             move=(opening+"\n\n「"+a+"」和「"+b+"」眼下都还在。"
                   "可是你用来保护它们的方法，正一点一点改变你能不能亲自接触到它们。"
                   "\n\n"+effect)
@@ -89,6 +94,8 @@ def scene(g,card):
                   "B. 不再扩大曾经允许的范围。",
                   "C. 让原话与已经发生过的行动一起接受核对。",
                   "D. 实际采取反制行动。"]
+        if cost and cost.get("scope",{}).get("no_expand"):
+            term[0]="A. 修改先前不许扩权的约定，接受对方的新要求（必须重新确认）。"
         return {"title":"第二次代价","body":move,"terms":term}
     if stage==4:
         variants={
