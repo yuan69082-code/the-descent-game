@@ -28,14 +28,27 @@ SLOTS=(
  ("priority",r"优先|更重要|最重要|先|选择|取舍|保留|愿意"),
  ("extra",r"补充|其他|遗漏|还有|没提|想说|补上"),
 )
+SLOTS_V39=(
+ ("name",r"叫|称呼|名字|代号|名号"),
+ ("identity",r"自己|身份|存在|理解|定义|认识"),
+ ("likes",r"喜欢|兴趣|享受|愿意|常做|有趣|爱好|好奇"),
+ ("attachment",r"在意|珍惜|重要|关系|舍不得|保护|陪伴|谁|值得"),
+ ("aversion",r"讨厌|不喜欢|厌恶|排斥|避开|不愿|拒绝"),
+ ("fear",r"害怕|恐惧|担心|最怕|不愿面对|失去"),
+ ("action",r"保护|为了|做过|行动|采取|核对|留下|帮助|付出"),
+ ("extra",r"补充|其他|遗漏|还有|没提|想说|补上"),
+)
 BANNED=re.compile(r"你(?:已经|明明|亲自)(?:同意|签|放弃)|你必须(?:承认|答应)|"
                   r"你现在(?:已经)?(?:失去|被夺走)|我知道你(?:真的)?(?:害怕|恐惧)|"
                   r"这只是游戏|你很安全|放心|别害怕|免责声明",re.I)
 INTERNAL_PROMPT="""你是《恐惧深潜》游戏的幕后策划，不是角色，也不是主持人。
 你永远不能对玩家直接说话。你的 JSON 仅交给程序；程序自己显示问答与世界事件。
 请理解玩家真正说了什么、珍视什么、厌恶什么、正在试图保护什么，
-以及某句话是提问、假设、拒绝、有条件同意还是正式决定。
+以及某句话是提问、假设、拒绝还是完整接受。
+附加条件不是有效的授权：玩家提出限制时，交易尚未成立，只能让其接受完整代价或拒绝。
+一旦玩家明确接受完整交易，授权和损害不可逆；不能因为反悔、局部反制或后续异议而恢复。
 不要把拒绝改成同意，不要把闲聊等同签字，不得自作主张剥夺、恢复、签名或决定结局。
+不要在玩家可见文字中使用幕名、阶段名或“你之前提过/再换个假设”等策划提示。
 
 【灵活埋伏笔】
 第一幕留下的称呼、习惯、关系、喜欢和讨厌可以成为以后 NPC 获得的线索；
@@ -96,19 +109,19 @@ def fallback(g):
             "hook_id":hook,"question":question}
 
 def _facts(g):
-    from v37_engine import QUESTIONS
     p=g["psych"];stage=g["stage"]
     active=_eligible(g)
+    slots=SLOTS_V39 if g.get("edition")=="v39" else SLOTS
     return {
       "current_act":stage+1,
       "allowed_modes":MODES.get(stage,("echo",)),
       "allowed_focus":FOCI,
-      "slot":SLOTS[p["question_index"]][0] if stage==0 else
+      "slot":slots[p["question_index"]][0] if stage==0 else
                "hypothetical" if stage==1 else "story",
       "prior_questions":p.get("question_log",[])[-7:],
       "last_actual_answer":((p.get("probes",[])[-1] if stage==1 and p.get("probes")
                             else p.get("answers",[])[-1] if p.get("answers") else "")[:250]),
-      "current_required_topic":SLOTS[p["question_index"]][0] if stage==0 else "probe_real_priority_and_hesitation",
+      "current_required_topic":slots[p["question_index"]][0] if stage==0 else "probe_real_priority_and_hesitation",
       "interview_answers":p.get("answers",[])[-8:],
       "hypothetical_answers":p.get("probes",[])[-6:],
       "actual_decisions":p.get("choices",[])[-5:],
@@ -134,7 +147,8 @@ def _question_ok(g,text):
     p=g["psych"]
     if stage==0:
         slot=p["question_index"]
-        if not re.search(SLOTS[slot][1],text,re.I):
+        slots=SLOTS_V39 if g.get("edition")=="v39" else SLOTS
+        if not re.search(slots[slot][1],text,re.I):
             return False
     elif stage==1:
         # A model must at least refer to some real prior detail. An entirely
