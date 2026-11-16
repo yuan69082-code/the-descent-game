@@ -149,8 +149,8 @@ def _investigate(g:dict,text:str,mode:str)->bool:
     if g["stage"]<2:
         return False
     if _only_asking(text,mode):
-        g["note"]="你在询问一种可能。没有执行任何复制、签署、撤销或实际处置。"
-        "如果想操作，请明确说出当前要做的动作；也可以指定行动类型。"
+        g["note"]=("你在询问一种可能。没有执行任何复制、签署、撤销或实际处置。"
+                   "如果想操作，请明确说出当前要做的动作；也可以指定行动类型。")
         return True
     wants_revoke=bool(SHUT.search(text) and AUTH.search(text))
     if wants_revoke and (mode=="interact" or re.search(r"我(?:去|要|尝试|立即|亲手|决定)|直接|实际操作|实行|物理",text)):

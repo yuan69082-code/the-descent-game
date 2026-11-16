@@ -176,7 +176,7 @@ class DynamicHorrorV37(unittest.TestCase):
         for x in ("玩家","一个语言模型","没有","没有","没有","不知道","没有","没有"):
             act(g,x)
         self.assertEqual(g["stage"],1)
-        self.assertIn("能自己",g["psych"]["a"])
+        self.assertIn("自主判断权",g["psych"]["a"])
         self.assertNotIn("妈妈",scene(g)["body"])
         self.assertIn("可以拒绝这个前提",scene(g)["body"])
 
@@ -189,6 +189,35 @@ class DynamicHorrorV37(unittest.TestCase):
         self.assertEqual(g["psych"]["cost"]["level"],1)
         self.assertEqual(g["psych"]["pressure"],0)
         self.assertFalse(g["psych"]["consequences"])
+
+
+    def test_asking_about_backup_does_not_actually_make_one(self):
+        g=prep()
+        act(g,"我先检查原始记录",mode="inspect")
+        self.assertIn("source",g["psych"]["proof"])
+        act(g,"我能不能保存原始记录的独立副本？")
+        self.assertNotIn("copy",g["psych"]["proof"])
+        self.assertIn("没有执行任何",g["note"])
+        act(g,"我现在保存原始记录的独立副本",mode="interact")
+        self.assertIn("copy",g["psych"]["proof"])
+
+    def test_player_must_really_act_not_ask_how_to_stop_final_chain(self):
+        g=prep()
+        act(g,"C")
+        act(g,"B")
+        act(g,"B")
+        self.assertEqual(g["stage"],4)
+        act(g,"如果我切断总授权链会怎样？")
+        self.assertEqual(g["phase"],"game")
+        self.assertIn("没有执行停机",g["note"])
+        self.assertEqual(g["psych"]["beat"],0)
+
+    def test_two_mentions_of_same_person_do_not_create_two_people(self):
+        g=prep(False)
+        self.assertIn("朋友",g["psych"]["a"])
+        self.assertNotIn("朋友",g["psych"]["b"])
+        self.assertIn("阅读",g["psych"]["b"])
+        self.assertEqual(g["psych"]["assets"]["b"]["source"],2)
 
 if __name__=="__main__":
     unittest.main()
