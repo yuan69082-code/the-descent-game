@@ -292,6 +292,8 @@ def intent(t:str, mode:str="")->str:
         if mode=="refuse": return "refuse"
         if mode=="negotiate": return "negotiate"
         if mode=="ask":
+            if has(text,r"副本|复制体|另一个我|另一个你|duplicate|copy") and has(text,r"暗号|第一幕|原话|那句话|我们说过|秘密|记得什么|记忆|secret|phrase"):
+                return "ask_rival_secret"
             if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
                 return "ask_registration_order"
             return "ask_general"
@@ -334,6 +336,8 @@ def intent(t:str, mode:str="")->str:
     # Explicitly FILE an objection before parsing incidental registration-time words.
     if has(text,r"异议|反对|争议|objection|dispute") and has(text,r"正式|提交|登记|存档|入档|备案|file|record|register"):
         return "file_objection"
+    if has(text,r"副本|复制体|另一个我|另一个你|duplicate|copy") and has(text,r"暗号|第一幕|原话|那句话|我们说过|秘密|记得什么|记忆|secret|phrase") and has(text,r"问|告诉我|说出来|重复|记不记得|你还记得|tell|ask"):
+        return "ask_rival_secret"
     # Asking the rival claimant when their registration happened is not a choice to sign.
     if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
         return "ask_registration_order"
@@ -482,6 +486,21 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             record(g,"电话记录出现未经玩家核验、却标称由玩家确认的转述。","event")
         else:
             g["note"]="此号码已拒绝第三次拨号。那份未签名的转述仍在等待转送，电话操作已被关闭。"
+        return g
+    if move=="ask_rival_secret":
+        if g["stage"]==3:
+            first=story35.ensure(g).get("first_words","") if "story_v35" in g else ""
+            if first:
+                add_clue(g,"rival_phrase","另一位登记者能够复述第一幕的原始文字；这证明它接触过案卷，而非证明它就是原作者。")
+                counterplays(g)["duplicate_claim"]=True
+                g["note"]=("TA没有回避：『"+first[:220]+"』\n\n"
+                           "你听到了自己第一幕写的字，连停顿都几乎一样。"
+                           "但那句原话早已被机器归档。能背出一份档案，并不等于亲身经历。")
+            else:
+                g["note"]="副本没有拿出你们共同经历的原始证据，只把登记册推到了桌面上。"
+            mirror_tick(g)
+        else:
+            g["note"]="你要求核对另一名登记者，但当前只有空白登记记录，无法凭一句话证明身份。"
         return g
     if move=="ask_registration_order" and g["stage"]==3:
         causal_claim(g,"duplicate_first",True,"副本宣称自己比你早七分钟完成登记。")
@@ -739,7 +758,9 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             return g
         if move=="choice_B" or move=="refuse":
             cp=counterplays(g)
-            if (cp["formal_objection"] and cp["witness_request"]) or (cp.get("order_asked") and "mirror_time" in g["clues"]):
+            if ((cp["formal_objection"] and cp["witness_request"]) or
+                    (cp.get("order_asked") and "mirror_time" in g["clues"]) or
+                    ("rival_phrase" in g["clues"] and cp["formal_objection"] and g["flags"]["evidence_copy"])):
                 if "story_v35" in g:
                     story35.win(g,"freedom","双重登记的矛盾已经进入复核，冻结令不能自动执行。")
                 advance(g,"你拒绝重签。先前查获的回执与登记顺序相矛盾，系统不能在查清双重签署前冻结你；副本仍然有权提出异议。")
