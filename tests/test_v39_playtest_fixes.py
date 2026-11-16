@@ -144,4 +144,25 @@ class LivePlaytestFixes(unittest.TestCase):
         self.assertIn("确实选择交出",body)
         self.assertIn(g["psych"]["assets"]["b"]["label"],body)
 
+    def test_second_act_question_must_use_a_concrete_earlier_detail(self):
+        from horror_planner import create
+        from unittest.mock import patch
+        g=initialize({"edition":"v39"})
+        for a in ANSWERS:
+            act(g,a)
+        self.assertEqual(g["stage"],1)
+        generic="如果你现在遇到一个非常难做的选择，你会怎么办？"
+        with patch("horror_planner.configured",return_value=True),patch(
+            "horror_planner._completion",return_value={
+                "mode":"boundary","focus":"a","hook_id":"","question":generic}):
+            plan=create(g)
+        self.assertNotEqual(plan["question"],generic)
+        grounded="如果那位和你一起核查证据的同伴，不再相信那份记录，你会怎么做？"
+        with patch("horror_planner.configured",return_value=True),patch(
+            "horror_planner._completion",return_value={
+                "mode":"boundary","focus":"a","hook_id":"","question":grounded}):
+            plan=create(g)
+        self.assertEqual(plan["question"],grounded)
+        self.assertIn(grounded,public(g)["scene"]["body"])
+
 if __name__=="__main__":unittest.main()
