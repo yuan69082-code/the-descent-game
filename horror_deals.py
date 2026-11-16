@@ -14,7 +14,7 @@ PROPOSALS=(
     ("uncertainty",r"不确定|无法核实|黑箱|不信任|无法确认", "承担无法核实的风险"),
     ("exhaustion",r"疲惫|透支|精力|耗尽|无休止", "承担持续消耗"),
 )
-DEAL_INTENT=re.compile(r"愿意|接受|同意|承受|承担|我选|我选择|宁愿|我决定|以.+换|付出",re.I)
+DEAL_INTENT=re.compile(r"提出交易|允许|愿意|接受|同意|承受|承担|我选|我选择|宁愿|我决定|以.+换|付出",re.I)
 DEAL_OBJECT=re.compile(r"保住|留下|保护|保存|换取|两个|两者|双方|同时",re.I)
 SCOPE_WORDS=re.compile(r"前提|条件|但|必须|要求|只要|仅限|不能|不许|不得|不允许|保证|确保|暂时|不要|禁止|不准|不可",re.I)
 
@@ -22,7 +22,8 @@ NO_REPLY=re.compile(
     r"(?:不能|不得|不许|不允许|别|禁止|不准|不可|不要).{0,16}"
     r"(?:代替|替|冒名|代理|模仿|代表).{0,10}(?:我)?"
     r"(?:回答|回复|发言|说话|联系|决定|操作|发送)"
-    r"|(?:不能|不许|别|不得|不要).{0,12}(?:替我回答|替我说话|替我决定)",re.I)
+    r"|(?:不能|不许|别|不得|不要).{0,12}(?:替我回答|替我说话|替我决定)"
+    r"|(?:禁止|不得|不能|不许|不要|不允许)代答",re.I)
 NO_EXPAND=re.compile(
     r"(?:不能|不得|不许|不允许|禁止|别|不准|不可).{0,18}"
     r"(?:扩大|扩张|扩权|扩展|增加权限)",re.I)
@@ -65,7 +66,7 @@ REVOCATION_REQUEST=re.compile(
     r"(?:我(?:现在)?(?:明确)?(?:决定|要|选择|想|要求)?\s*)(?:撤销|撤回|收回|终止|取消|解除)"
     r"(?:这份|本次|当前|这项)?(?:交易|授权|委托|协议|许可|代行|监视)?"
     r"|(?:交易|授权|委托|协议|许可|代行|监视).{0,12}(?:撤销|撤回|收回|终止|取消|解除)",re.I)
-CONDITION_SPLIT=re.compile(r"但是|而且|并且|同时|此外|另外|还有|以及|且|但|[，,；;]")
+CONDITION_SPLIT=re.compile(r"但是|而且|并且|同时|此外|另外|还有|以及|且|但|[，,；;。！？!?\n]")
 CONDITION_SIGNAL=re.compile(
     r"不能|不得|不许|不允许|禁止|不准|不可|别|不要|仅限|只限|只允许|只能|必须|"
     r"前提|条件|要求|保证|确保|随时|可撤销|保留撤销权|有权撤销",re.I)
@@ -125,7 +126,9 @@ def parse(g,action,mode=""):
     if mode in ("ask","refuse","inspect","talk") and not explicit_letter:
         return None
     costs=g["psych"].get("negative",[])
-    requested_kind,requested_name=_user_type(msg)
+    proposal_text="，".join(part for part in CONDITION_SPLIT.split(msg)
+                            if not CONDITION_SIGNAL.search(part))
+    requested_kind,requested_name=_user_type(proposal_text)
     chosen=None
     if explicit_letter:
         chosen=explicit_letter.group(1).upper()
