@@ -151,8 +151,8 @@ def _question_ok(g,text):
                 for size in (2,3):
                     for i in range(max(0,len(chunk)-size+1)):
                         fragment=chunk[i:i+size]
-                        if fragment not in stop and
-                           not fragment.startswith(("我","你","他","她","会","是","不")):
+                        if (fragment not in stop and
+                            not fragment.startswith(("我","你","他","她","会","是","不"))):
                             fragments.add(fragment)
         if fragments and not any(fragment in text for fragment in fragments):
             return False
