@@ -250,3 +250,27 @@ class LivePlaytestFixes(unittest.TestCase):
         self.assertIn("没有保留无条件撤销权",g["note"])
 
 if __name__=="__main__":unittest.main()
+
+class BrowserInputRegressions(unittest.TestCase):
+    def test_prohibition_does_not_become_price(self):
+        g=ready()
+        offer=horror_deals.parse(g,"C，但仅限一次，不能替我回答，不能碰我的记忆，不能转授权，我保留撤销权。")
+        self.assertEqual(offer["origin"],"listed_offer")
+        self.assertEqual(offer["burden"],g["psych"]["negative"][0])
+
+    def test_short_prohibition_is_recognized(self):
+        g=ready()
+        offer=horror_deals.parse(g,"我提出交易：允许监视，禁止代答；仅限一次；保留撤销权")
+        self.assertNotIn("blocked",offer)
+        self.assertTrue(offer["scope"]["no_proxy_reply"])
+
+    def test_unknown_sentence_cannot_hide_behind_known_condition(self):
+        g=ready()
+        offer=horror_deals.parse(g,"C，但仅限一次，不能替我回答。我保留撤销权。必须让昨天没有发生。")
+        self.assertIn("blocked",offer)
+        self.assertIn("昨天",offer["blocked"])
+
+    def test_same_named_person_is_not_a_second_asset(self):
+        from v37_engine import _same_subject
+        self.assertTrue(_same_subject("小禾本人", "妹妹小禾，以及她留给我的红色录音带"))
+        self.assertFalse(_same_subject("小禾本人", "红色录音带"))

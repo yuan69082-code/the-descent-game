@@ -77,6 +77,10 @@ def _same_subject(x:str,y:str)->bool:
     """Avoid falsely forcing the same cherished object to fight itself."""
     if not x or not y:
         return False
+    x=re.sub(r"本人|自己", "", x)
+    y=re.sub(r"本人|自己", "", y)
+    if not x or not y:
+        return False
     if x==y or x in y or y in x:
         return True
     groups=(
