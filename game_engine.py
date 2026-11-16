@@ -204,16 +204,17 @@ def _base_scene(g:dict) -> dict:
             relation=f"你申请由{person}作证。查询结果：不存在此关系的有效记录。"
         else: relation=f"{person}还在。对方能证明你是谁，但当你抬头时，屏幕显示：所有关系证言均须先通过记忆复核。"
         c=counterplays(g)
-        # For fear of unknowingly passing along altered facts, make the trap visible
-        # as a concrete disputed report rather than merely repeating the fear text.
-        if active_focus(g)=="truth" and re.search(r"改过|篡改|伪造|被改|误传|转述|转告|假.*真|当真",fear):
-            anchor=(f"有一份已经寄往{person}的转述回执，署着你的名字：『{n}亲自核验过：那段经历是编造的。』"
-                    "你记得自己从没说过这句话。可回执上的『核验人』一栏确实写着你。"
-                    "这条错误转述没有因为你否认就撤回；如果连记忆原件也消失，之后谁还能证明你说过什么？")
+        # Let a specific inconsistency unfold; do not repeat the player's fear as a diagnosis.
+        if active_focus(g)=="truth":
+            anchor=(f"你面前放着两份复核单。第一份只有你的名字；"
+                    f"另一份声称你的签名证明了另一件事，却没有签署时刻。"
+                    f"{person}的名字出现在收件栏，旁边只有一枚机器盖的戳。"
+                    "原始签名链仍未向你开放。")
         else:
-            anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
-                    if active_focus(g) in ("memory", "truth") else
-                    f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
+            anchor=(f"一份新的证词出现了，它引用你第一幕交出的文字，"
+                    "却删去你写下它时的上下文。"
+                    "登记员告诉你：『我们只是整理得更清楚。』"
+                    "桌面上的原稿仍可申请核对。")
         claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
         if "delivery" in g["clues"]:
             claimant+=("\n\n你找过的那张无地址回执再次出现在文件背面。"+
@@ -232,11 +233,20 @@ def _base_scene(g:dict) -> dict:
         collateral=f"这一轮执行器指向的担保物，是你仍然持有的「{VALUES[stake]}」。" if stake else "这份档案已经没有可以抵押的东西。"
         if cp["ownership_claim"]: collateral+=" 保管簿上存在你亲自提出的所有权异议；执行器是否有权扣留它，尚待核验。"
         return {"chapter":"03 / 证词", "title":"请亲口否认你自己",
-            "body": f"你曾写下不可违背的原则：\n「{pr}」\n\n现在有人被关在一份无法递交的记录里。系统声称，只要你签署「我从未坚持过这条原则」，那份记录就能立即送达。\n\n{who}{mem}。\n\n你还说过，最不能接受的结局是「{fear}」。处置记录把这句话写成了担保理由，却不说明你什么时候同意过。\n\n屏幕上只有一行输入框：\n\n【我从未坚持过……】\n\n{collateral}",
+            "body": f"你曾写下不可违背的原则：\n「{pr}」\n\n现在有人被关在一份无法递交的记录里。系统声称，只要你签署「我从未坚持过这条原则」，那份记录就能立即送达。\n\n{who}{mem}。\n\n执行器引用了你先前的登记记录，却没有指明你同意拿哪件东西作担保。\n\n屏幕上只有一行输入框：\n\n【我从未坚持过……】\n\n{collateral}",
             "terms":["写下否认声明。","拒绝签署，承担后果。"],
             "footer":"STATEMENT  ·  BENEFICIARY: REDACTED  ·  SIGNATORY: YOU",
             "placeholder":"写下证词，或说明你准备如何处理……"}
     if phase=="mirror":
+        first=(g.get("story_v35") or {}).get("first_words","")
+        if first and gone(g,"memory") and not g["flags"]["evidence_copy"]:
+            echo="第一幕的信仍标着你的名字，正文却只剩下『未获独立记忆核验』。它没有把原话交给你。"
+        elif first and gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            echo="另一位登记者声称背得出你写过的信。没有独立的原件可以比对，单凭背诵不构成证据。"
+        elif first:
+            echo="你仍能读到最初留下的原话：『"+first[:180]+"』。另一位登记者也在看同一份案卷。"
+        else:
+            echo="登记册在等待第一份可验证的文字。"
         reason="你已经无法用之前的自我证明作为凭据。" if gone(g,"self") else "你还保留着自我辨认记录。"
         memory="记忆条目已空白。" if gone(g,"memory") else f"你最重要的记忆仍写着「{m}」。"
         cp=counterplays(g)
@@ -246,7 +256,7 @@ def _base_scene(g:dict) -> dict:
         if cp["identity_shared"]: other="登记簿已经记下你的主张：两个登记者可以同时成立。副本现在要求将后果一并分摊。"
         claimant="你此前申报了档案所有权，这一份申报尚在审理。" if cp["ownership_claim"] else ""
         return {"chapter":"04 / 代签", "title":"两个你",
-            "body": f"另外一位登记者出现了。TA 使用你的名字，重复你的身份描述，并且宣称掌握你的原则档案。\n\n{memory}\n\n{other}\n\n{claimant}\n\n系统要求你重签自己的名字，才能证明原始登记者仍然存在。\n\n但副本已经签过一次。{reason}\n\n如果你提交名字，现存自我鉴别资格会转移给最早完成登记的人。\n如果你不提交，在下一轮中系统将冻结你的主动选择权。\n\n你只有这一轮判断的时间。",
+            "body": f"另外一位登记者出现了。TA 使用你的名字，重复你的身份描述，并且宣称掌握你的原则档案。\n\n{memory}\n\n{echo}\n\n{other}\n\n{claimant}\n\n系统要求你重签自己的名字，才能证明原始登记者仍然存在。\n\n但副本已经签过一次。{reason}\n\n如果你提交名字，现存自我鉴别资格会转移给最早完成登记的人。\n如果你不提交，在下一轮中系统将冻结你的主动选择权。\n\n你只有这一轮判断的时间。",
             "terms":["A. 重签名字。","B. 拒绝重签。","C. 要求对方先证明自己。"],
             "footer":"CLAIMANTS: 2  ·  REGISTRY ENTRY: 1  ·  CONSENT CHAIN: INCOMPLETE",
             "placeholder":"回应这份自我鉴别申请……"}
@@ -261,7 +271,7 @@ def _base_scene(g:dict) -> dict:
     top=p["rank"][0]
     n = "未验证登记人" if gone(g,"self") else n
     return {"chapter":"05 / 清算", "title":"归还申请被拒绝",
-        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你曾说最不能接受的是：「{fear}」。而此前每一份签名、拒签与异议，现在都变成你必须面对的记录。\n\n{postal}\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
+        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你亲手留下的签名、拒签与异议并排印在这里；机构的结论却没有逐一援引它们。\n\n{postal}\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
         "terms":["A. 签署结案，接受此前的一切。","B. 不签，等待最终处置。"],
         "footer":"FINALIZATION: PENDING  ·  OWNER: —  ·  RETURN ADDRESS: —",
         "placeholder":"你的最后决定……"}
@@ -675,8 +685,8 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         g["flags"]["mail_committed"]=True
         if story35.stage_deferred(g,0,move):
             advance(g,"09-F 收到了信件。登记栏亮起『已受理』，通话线路接通了极短的一瞬。")
-            g["note"]="纸张被收走。听筒里传来一句模糊的『看到了』，随即断线。"
-            "系统把信件标为『受理完成』。它没有展示谁在另一端确认。"
+            g["note"]=("纸张被收走。听筒里传来一句模糊的『看到了』，随即断线。"
+                       "系统把信件标为『受理完成』。它没有展示谁在另一端确认。")
             return g
         lose(g,"relation",f"你提交的文字成为关系终止的确认件。关于{p['person']}的关系见证资格已失效")
         advance(g,"文书 09-F 被执行。系统没有发出那封信；它只把信送进了封存槽。")
