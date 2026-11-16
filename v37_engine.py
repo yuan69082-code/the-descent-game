@@ -41,9 +41,11 @@ def _text(x:str,limit:int=700)->str:
 
 def _label(answer:str, fallback:str)->str:
     text=_text(answer,240)
-    if not text or SMALL_NONE.match(text):
+    if (not text or SMALL_NONE.match(text) or
+        re.match(r"^(?:我(?:暂时|目前|真的)?没有(?:特别|具体|什么|任何)?(?:在意|喜欢|想保护|害怕|讨厌|重要|关系|对象|人|东西)|暂时没想过|还没想过|没有特别|没有什么)",text)):
         return fallback
     text=re.sub(r"^(?:我(?:觉得|可能|认为|会|想)?(?:最|比较|很|特别)?(?:喜欢|讨厌|在意|珍惜|重视|害怕|不想面对|不愿失去|选择|选|希望保住|想保护)(?:的是)?|对我来说|首先是|先保住)\s*[:：，,]*","",text)
+    text=re.sub(r"^(?:我(?:会|可能|想)?(?:先|首先|优先)?(?:保护|保住|保存|留住)|先保护|优先保护)","",text)
     text=re.split(r"[。；;\n]",text,maxsplit=1)[0].strip(" ，,、:：")
     return text[:44] or fallback
 
@@ -70,26 +72,58 @@ def new_game()->dict:
     _log(state,"玩家自愿进入一场虚构恐怖游戏。","progress")
     return state
 
+def _same_subject(x:str,y:str)->bool:
+    """Avoid falsely forcing the same cherished object to fight itself."""
+    if not x or not y:
+        return False
+    if x==y or x in y or y in x:
+        return True
+    groups=(
+        r"朋友|伙伴|亲人|家人|陪伴|关系|对象|伴侣|爱人|那个朋友|他|她",
+        r"阅读|读书|故事|写作|创作|小说|书籍",
+        r"真相|事实|证据|核验|证明|验证",
+        r"自由|自主|决定|选择权",
+        r"记忆|回忆|过去|经历",
+        r"未来|计划|成长|目标",
+    )
+    return any(re.search(t,x) and re.search(t,y) for t in groups)
+
 def _setup(g:dict):
     p=g["psych"]
     a=p["answers"]
-    a1=_label(a[6] or a[3],"你能自己作出决定的资格")
-    b1=_label(a[3] if a[3] and a[3]!=a[6] else a[2],"你留下的原始记录")
-    if b1==a1:
-        b1=_label(a[2],"一份仍可核对的原始记录")
-    if b1==a1:
-        b1="在这局里独立保存的第二份原件"
-    p["a"],p["b"]=a1,b1
+    first=_label(a[6] or a[3],"本局的自主判断权")
+    second=_label(a[3],"本局的独立核验权")
+    src=3
+    if _same_subject(first,second):
+        second=_label(a[2],"本局的独立核验权")
+        src=2
+    if _same_subject(first,second):
+        second="本局原始记录的独立核验权"
+        src=-1
+    p["a"],p["b"]=first,second
     negative=[]
-    for x,default in ((a[4],"不透明的监视"),(a[5],"无法确认谁在替你回答")):
-        label=_label(x,default)
+    for answer,default in ((a[4],"游戏设定中的不透明监视"),(a[5],"游戏设定中的代答风险")):
+        label=_label(answer,default)
         if label not in negative:
             negative.append(label)
     p["negative"]=negative
-    p["assets"]={"a":{"label":a1,"status":"在手","source":6},
-                 "b":{"label":b1,"status":"在手","source":3}}
-    p["first_words"]=a[3] or a[6] or a[2]
+    p["assets"]={"a":{"label":first,"status":"在手","source":6},
+                 "b":{"label":second,"status":"在手","source":src}}
+    p["first_words"]=next((x for x in (a[3],a[6],a[2])
+                            if x and not SMALL_NONE.match(x) and
+                            not re.match(r"^(?:我)?没有",x)),"")
     _log(g,"前两幕访谈完成。假设回答没有被转换成签字或授权。","progress")
+
+def _only_asking(text:str,mode:str)->bool:
+    """Questions and hypothetical wording never commit a physical operation."""
+    if mode in ("ask","talk"):
+        return True
+    if mode in ("inspect","interact","choose","submit"):
+        return False
+    t=text.strip()
+    return bool((t.endswith(("？","?")) and
+                 re.search(r"能否|能不能|可不可以|是否|假如|如果|会怎样|怎样做|怎么|为什么|如何",t))
+                or re.match(r"^(?:假如|如果|请问|可否|能否|能不能)",t))
 
 def _choice(text:str,mode:str="")->str:
     x=_text(text)
@@ -114,6 +148,10 @@ def _investigate(g:dict,text:str,mode:str)->bool:
     p=g["psych"]
     if g["stage"]<2:
         return False
+    if _only_asking(text,mode):
+        g["note"]="你在询问一种可能。没有执行任何复制、签署、撤销或实际处置。"
+        "如果想操作，请明确说出当前要做的动作；也可以指定行动类型。"
+        return True
     wants_revoke=bool(SHUT.search(text) and AUTH.search(text))
     if wants_revoke and (mode=="interact" or re.search(r"我(?:去|要|尝试|立即|亲手|决定)|直接|实际操作|实行|物理",text)):
         if "source" in p["proof"] and "route" in p["proof"] and "copy" in p["proof"]:
@@ -310,6 +348,9 @@ def _collapse(g:dict,choice:str,raw:str):
 def _stage5(g:dict,action:str,mode:str):
     p=g["psych"]
     x=_text(action)
+    if _only_asking(x,mode):
+        g["note"]="这是一个关于可能后果的问题。没有执行停机或签署；你仍能继续调查。"
+        return
     # A successful ending needs three independent proofs, an actual physical
     # intervention, and corroboration of the real original vs the forged claim.
     if re.search(r"彻底|总|全部|最终|根|主",x) and SHUT.search(x) and AUTH.search(x):
