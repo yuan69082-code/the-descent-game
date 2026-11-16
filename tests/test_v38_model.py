@@ -27,6 +27,38 @@ def ready():
     return g
 
 class ModelDirectorV38(unittest.TestCase):
+    def test_official_deepseek_uses_max_tokens_json_and_reasoning(self):
+        seen=[]
+        def handler(request):
+            self.assertEqual(request.url.host,"api.deepseek.com")
+            self.assertEqual(request.url.path,"/chat/completions")
+            payload=json.loads(request.content)
+            seen.append(payload)
+            self.assertEqual(payload["model"],"deepseek-v4-pro")
+            self.assertNotIn("max_completion_tokens",payload)
+            self.assertIn("max_tokens",payload)
+            self.assertEqual(payload["response_format"],{"type":"json_object"})
+            return httpx.Response(200,json={"choices":[{"message":{
+                "content":json.dumps(MODEL_SCENE,ensure_ascii=False)}}]})
+        original=httpx.Client
+        def mock_client(*args,**kwargs):
+            return original(transport=httpx.MockTransport(handler),**kwargs)
+        env={"HORROR_LLM_API_KEY":"unit-test-only",
+             "HORROR_LLM_MODEL":"deepseek-v4-pro",
+             "HORROR_LLM_BASE_URL":"https://api.deepseek.com"}
+        with patch.dict(os.environ,env),patch("httpx.Client",side_effect=mock_client):
+            planning=director._completion([{"role":"system","content":"输出 JSON"},
+                                           {"role":"user","content":"请策划下一幕"}],420)
+            classification=director._completion([{"role":"system","content":"JSON 语义识别"},
+                                                 {"role":"user","content":"识别真实行动"}],190)
+        self.assertEqual(planning,MODEL_SCENE)
+        self.assertEqual(classification,MODEL_SCENE)
+        self.assertEqual(seen[0]["reasoning_effort"],"high")
+        self.assertEqual(seen[1]["reasoning_effort"],"low")
+        self.assertGreaterEqual(seen[0]["max_tokens"],3072)
+        self.assertGreaterEqual(seen[1]["max_tokens"],1024)
+        self.assertEqual(len(seen),2)
+
     def test_model_is_opt_in_and_never_invents_credentials(self):
         with patch.dict(os.environ,{"HORROR_LLM_API_KEY":"","HORROR_LLM_MODEL":""}):
             self.assertFalse(director.configured())
