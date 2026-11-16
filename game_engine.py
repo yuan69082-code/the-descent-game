@@ -325,7 +325,7 @@ def intent(t:str, mode:str="")->str:
     if has(text,r"联系|请求|邀请|召唤|呼叫|传唤|让.*作证|ask|call|summon") and has(text,r"证人|见证|作证|证言|对方|那个人|她|他|witness|testimony"):
         return "request_witness"
     # Real actions must be phrased as verb + object. This is still a limited rules engine, not an LLM.
-    if has(text,LOOK) and has(text,r"收件人|寄给谁|送给谁|送达|签收|mail|recipient|delivery|address"):return "inspect_delivery"
+    if has(text,LOOK) and has(text,r"收件人|收件地址|收件栏|邮寄地址|没有地址|无地址|寄给谁|送给谁|送达|签收|邮寄|信件|mail|recipient|delivery|address"):return "inspect_delivery"
     if has(text,LOOK) and has(text,r"保管簿|持有人|保管人|custody|ledger"):return "inspect_custody"
     if has(text,LOOK) and has(text,r"签字|审批|印章|授权|权限|原始|同意|归属|所有权|协议|合同|谁能|谁有|approval|signature|authorization|owner|consent|contract"):return "inspect_authority"
     if has(text,LOOK) and has(text,r"执行|线路|维修|机箱|驱动|指令|端口|流程|程序|终端|路径|来源|log|circuit|actuator|machine|port|executor|trace"):return "inspect_executor"
