@@ -628,7 +628,8 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         if "story_v35" in g and not story35.ensure(g)["first_words"]:
             story35.ensure(g)["first_words"]=t[:220]
         if g["flags"].get("slot_blocked",False):
-            story35.win(g,"relation","纸张没有进入读取槽，归档失败。")
+            if "story_v35" in g:
+                story35.win(g,"relation","纸张没有进入读取槽，归档失败。")
             record(g,"09-F 纸张未能进入读取槽；玩家没有交出关系证明。转入人工复核。","evidence")
             advance(g,"09-F 无法自动执行。机器把未完成的投递改为复核事项。")
             g["note"]="你留下文字。读取灯却没有亮：你先前封住的回执槽确实阻止了归档。信被退到桌面上，关系档案尚未销毁。屏幕改为『转人工复核』。"
