@@ -219,5 +219,44 @@ class BackstagePlannerV39(unittest.TestCase):
             self.assertEqual(exported["narrative"]["question_log"][0]["asked"],valid["question"])
             web.close()
 
+    def test_a_later_act_is_a_system_scene_not_v37_paperwork(self):
+        g=new();through_interview(g)
+        with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",
+             return_value={"mode":"pressure","focus":"aversion","hook_id":"","question":""}):
+            planner.create(g)
+        scene=public(g)["scene"]
+        self.assertEqual(scene["title"],"两处空位")
+        self.assertIn("第二次敲击",scene["body"])
+        self.assertIn("A. 留下",scene["terms"][0])
+        self.assertNotIn("保管库只有一条",scene["body"])
+        self.assertEqual(g["psych"]["choices"],[])
+
+    def test_second_act_question_is_dynamic_and_preserved_exactly(self):
+        g=new();planner.create(g)
+        for x in ANSWERS:submit(g,x)
+        self.assertEqual(g["stage"],1)
+        question="如果那位能一起查明真相的朋友不想让你调查，你会先尊重哪一个决定？"
+        with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",
+             return_value={"mode":"boundary","focus":"a","hook_id":"","question":question}):
+            card=planner.create(g)
+        self.assertEqual(card["question"],question)
+        self.assertEqual(public(g)["scene"]["body"].splitlines()[-1],question)
+        old=g["stage"]
+        act(g,"我会和对方商量，但不替他作决定")
+        planner.remember(g,"我会和对方商量，但不替他作决定",old,
+                         "我会和对方商量，但不替他作决定","")
+        self.assertEqual(g["psych"]["question_log"][-1]["asked"],question)
+        self.assertFalse(g["psych"]["choices"])
+
+    def test_model_facts_include_real_early_hooks_not_a_fixed_final_timetable(self):
+        g=new();through_interview(g)
+        facts=planner._facts(g)
+        self.assertIn("old_hooks",facts)
+        self.assertTrue(any(x["from_act"]==1 for x in facts["old_hooks"]))
+        self.assertTrue(any(x["from_act"]==2 for x in facts["old_hooks"]))
+        self.assertEqual(facts["current_act"],3)
+        self.assertNotIn("must_fire_in_act5",facts)
+        self.assertEqual(g["psych"]["consequences"],[])
+
 if __name__=="__main__":
     unittest.main()
