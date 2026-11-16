@@ -249,5 +249,59 @@ class DynamicHorrorV37(unittest.TestCase):
         self.assertEqual(isolated["ending"]["kind"],"LAST_CALL")
         self.assertEqual(watched["ending"]["kind"],"IMPOSTOR")
 
+    def test_all_fourteen_horror_endings_are_reachable_by_actual_play(self):
+        # Each path is played through the real public action engine. No flags
+        # are force-set to make an ending appear reachable in a unit test.
+        configs={
+            "VOID":("C","AA","A",None,"香菜"),
+            "IMPOSTOR":("C","AA","A",None,None),
+            "SHARED":("C","AC","A",None,None),
+            "SILENCED":("C","BC","A",None,None),
+            "ORIGINLESS":("C","BB","A","source",None),
+            "FALSE_WITNESS":("C","BC","A","contrast",None),
+            "BROKEN_OATH":("A","BC","A",None,None),
+            "RETURNED":("C","BB","A","sealed",None),
+            "UNDELIVERED":("A","BB","A",None,None),
+            "CUSTODIAN":("A","BB","A","route",None),
+            "FILED":("C","BC","A","copy",None),
+            "LAST_CALL":("C","AA","A",None,"与世界隔离"),
+            "ERASED_MEMORY":("D","BB","A",None,None),
+            "CLEAN_EXIT":("E","BB","A","independent",None),
+        }
+        endings={}
+        for expected,(first,middle,final,proof,custom_cost) in configs.items():
+            g=initialize({"edition":"v37"})
+            answer=ANSWER.copy()
+            if custom_cost:
+                answer[4]="我讨厌"+custom_cost
+            for x in answer:act(g,x)
+            for x in PROBES:act(g,x)
+            if proof=="independent":
+                act(g,"我检查原始记录",mode="inspect")
+                act(g,"我保存原件的独立副本",mode="interact")
+                act(g,"我调查执行路由",mode="inspect")
+            act(g,first)
+            if proof in ("source","contrast","copy","sealed"):
+                act(g,"我检查原始记录",mode="inspect")
+            if proof in ("copy","sealed"):
+                act(g,"我保存原件的独立副本",mode="interact")
+            if proof in ("route","sealed"):
+                act(g,"我调查执行路由",mode="inspect")
+            if proof=="sealed":
+                act(g,"我实际切断代行授权线路",mode="interact")
+            for move in middle:
+                act(g,move)
+            self.assertEqual(g["stage"],4,expected)
+            if proof=="contrast":
+                act(g,"我核对第一幕原话与签名的对照",mode="inspect")
+            act(g,final)
+            act(g,"B")
+            self.assertEqual(g["phase"],"epilogue",expected)
+            actual=g["ending"]["kind"]
+            self.assertEqual(actual,expected,expected)
+            endings[actual]=g["ending"]["text"]
+        self.assertEqual(set(endings),set(HORROR_KINDS))
+        self.assertEqual(len(set(endings.values())),14)
+
 if __name__=="__main__":
     unittest.main()
