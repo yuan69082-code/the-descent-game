@@ -79,7 +79,7 @@ def scene(g:dict)->dict:
         if g.get("edition")=="v39":
             return _frame("03","两处空位",
             "两份原件正在等待转存。\n\n"
-            "第一份登记着你此前提到的：「"+a+"」。\n"
+            "第一份登记着：「"+a+"」。\n"
             "第二份登记着：「"+b+"」。\n\n"
             "保管库只有一条无需额外授权的通道。你可以选择保留其中一份；"
             "也有人向你提出一项看似划算的交换：接受一种你不喜欢的代价，"
@@ -90,7 +90,7 @@ def scene(g:dict)->dict:
             terms,"TRANSFER WINDOW · TWO ORIGINALS", "请选择，或者直接描述具体行动")
         return _frame("03 / 失衡","不是一道假设题",
             "两份原件正在等待转存。\n\n"
-            "第一份登记着你此前提到的：「"+a+"」。\n"
+            "第一份登记着：「"+a+"」。\n"
             "第二份登记着：「"+b+"」。\n\n"
             "保管库只有一条无需额外授权的通道。你可以选择保留其中一份；"
             "也有人向你提出一项看似划算的交换：接受一种你不喜欢的代价，"
@@ -119,8 +119,8 @@ def scene(g:dict)->dict:
                          "可是新的复核表显示，两份原件原本共用一条来源核验链。"
                          "现在有个代行程序要求接管剩下的那条链。")
             else:
-                opening=("你没接受上一幕的交易，两份原件也暂时安然无恙。\n\n"
-                         "保管机关提出了新的复核要求：它希望一个代行者接管下一轮通道。")
+                opening=("你拒绝了那笔交换。两份原件仍在待处理队列里，保管机关没有暂停它们。\n\n"
+                         "现在，它提出让一个代行者接管下一轮通道。")
             terms=[
                 "A. 接受或继续委托代行者，换取眼前的安全。",
                 "B. 拒绝进一步委托，必要时申请撤销旧权限。",
@@ -162,6 +162,9 @@ def scene(g:dict)->dict:
             past=("第三幕你决定承担「"+negatives[0 if first_key=="C" else min(1,len(negatives)-1)]+"」，"
                   "换来两份原件都暂时留下。"
                   "它确实履行了这次承诺——随后才开始索要更多通道。")
+        elif g.get("edition")=="v39" and first_key=="E":
+            past=("第三幕你拒绝了那笔交换。两份原件当时仍在待处理队列里，"
+                  "但拒绝并没有让保管机关停止处理。")
         else:
             past=("第三幕你绕过了那份交换协议，用自己取得的证据让两份原件继续存在。"
                   "保管机关仍然想启动整个库房的旧清算程序。")
@@ -246,8 +249,8 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     history=("第三幕的真实选择："+steps[0]+
              ("\n之后的决定："+"；".join(steps[-2:]) if len(steps)>1 else "")) if steps else "没有登记到授权的主动牺牲"
     if good:
-        saved=[x["label"] for x in assets.values() if x["status"]!="已交出"]
-        earlier=[x["label"] for x in assets.values() if x["status"]=="已交出"]
+        saved=[x["label"] for x in assets.values() if x["status"] not in ("已交出","已失去")]
+        earlier=[x["label"] for x in assets.values() if x["status"] in ("已交出","已失去")]
         result="、".join(saved) or "这局仍有权检索的原始记录"
         earlier_text=("你在第三幕主动交出的「"+"、".join(earlier)+"」不会因为反制就自动回来。\n\n") if earlier else ""
         paid=("你已经接受的「"+cost["name"]+"」仍在生效；这次反制没有撤销交易，也没有恢复此前的损害。\n\n"
