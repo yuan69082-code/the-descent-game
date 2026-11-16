@@ -48,7 +48,11 @@ INTERNAL_PROMPT="""你是《恐惧深潜》游戏的幕后策划，不是角色�
 任务：从允许的 mode 中选当前游戏节奏，从已有的 hook_id 中选一个要回收的旧线索；
 选择 focus 指向当前值得观察的对象。仅在第一、二幕写一个自然、切题的下一问题。
 第一幕只可询问后台本轮指定 slot 的主题，不提前透露布局和恐怖机制；
-第二幕依据已有回答提出假设或深入追问；第三至第五幕 question 必须为空，
+从第二个问题开始必须注意上一轮玩家真正的回答，问他提过的具体细节；
+第二幕每一轮都要抓住已有回答中一个具体的、实际出现过的人/习惯/犹豫/拒绝条件，
+由此提出下一层假设，不能每一轮换句话重复「你会怎么选」，不能凭空新增他没提过的往事。
+如果玩家回答没有，就围绕「没有」本身或另一条真实回答继续，不要编造关系。
+第三至第五幕 question 必须为空，
 程序会按 mode/focus/hook_id 构建场景，显示正式可用选择并核实因果。
 严禁输出展示给玩家的故事正文、直接 NPC 对话、伦理说教、免责协议。
 只输出 JSON {"mode":"当前幕允许的枚举值","focus":"a|b|aversion|choice",
@@ -100,6 +104,9 @@ def _facts(g):
       "slot":SLOTS[p["question_index"]][0] if stage==0 else
                "hypothetical" if stage==1 else "story",
       "prior_questions":p.get("question_log",[])[-7:],
+      "last_actual_answer":((p.get("probes",[])[-1] if stage==1 and p.get("probes")
+                            else p.get("answers",[])[-1] if p.get("answers") else "")[:250]),
+      "current_required_topic":SLOTS[p["question_index"]][0] if stage==0 else "probe_real_priority_and_hesitation",
       "interview_answers":p.get("answers",[])[-8:],
       "hypothetical_answers":p.get("probes",[])[-6:],
       "actual_decisions":p.get("choices",[])[-5:],
@@ -119,9 +126,35 @@ def _question_ok(g,text):
     if not isinstance(text,str) or len(text.strip())<9 or len(text)>110 or BANNED.search(text):
         return False
     stage=g["stage"]
+    p=g["psych"]
     if stage==0:
-        slot=g["psych"]["question_index"]
+        slot=p["question_index"]
         if not re.search(SLOTS[slot][1],text,re.I):
+            return False
+    elif stage==1:
+        # A model must at least refer to some real prior detail. An entirely
+        # generic hypothetical is not a personalized second-act question.
+        import re as regex
+        from v37_engine import SMALL_NONE
+        material=[p.get("a",""),p.get("b",""),*(p.get("negative") or [])]
+        material.extend(p.get("answers",[])[2:7])
+        material.extend(p.get("probes",[])[-3:])
+        stop={"我会","你的","什么","时候","如果","这样","就是","或者",
+              "可以","一个","他们","我们","自己","现在","那样","对方",
+              "觉得","愿意","选择","重要","你会","是否","问题","可能",
+              "一个","事情","一种","这些","的话","没有","还是"}
+        fragments=set()
+        for source in material:
+            if not isinstance(source,str) or SMALL_NONE.match(source.strip()):
+                continue
+            for chunk in regex.findall(r"[一-龥]{2,}",source):
+                for size in (2,3):
+                    for i in range(max(0,len(chunk)-size+1)):
+                        fragment=chunk[i:i+size]
+                        if fragment not in stop and
+                           not fragment.startswith(("我","你","他","她","会","是","不")):
+                            fragments.add(fragment)
+        if fragments and not any(fragment in text for fragment in fragments):
             return False
     return True
 
