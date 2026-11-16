@@ -153,6 +153,9 @@ def _completion(messages,max_tokens,fast=False):
                     # Retrying with the same token ceiling would repeat the same truncation.
                     safe_failure("truncated",attempt)
                     return None
+                if finish_reason=="content_filter":
+                    safe_failure("content_filter",attempt)
+                    return None
                 if finish_reason in ("insufficient_system_resource","aborted"):
                     if attempt<attempts:
                         _model_log.warning("model_request_retry provider=%s category=%s attempt=%s/%s",
@@ -184,6 +187,14 @@ def _completion(messages,max_tokens,fast=False):
                     safe_failure("invalid_json",attempt)
                     return None
                 return parsed
+            except json.JSONDecodeError as ex:
+                if attempt<attempts:
+                    _model_log.warning("model_request_retry provider=%s category=invalid_response_json attempt=%s/%s",
+                                       host,attempt,attempts)
+                    retry_pause()
+                    continue
+                safe_failure("invalid_response_json",attempt,ex)
+                return None
             except httpx.HTTPStatusError as ex:
                 status=ex.response.status_code if ex.response is not None else None
                 retryable=status in (408,425,429,500,502,503,504)

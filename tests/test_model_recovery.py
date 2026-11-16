@@ -35,6 +35,8 @@ class _Response:
     def json(self):
         if self._content=="body_error":
             return {"error":{"type":"server_error","message":"redacted"}}
+        if self._content=="malformed_response":
+            raise json.JSONDecodeError("invalid response","",0)
         return {"choices":[{
             "finish_reason":self._finish_reason,
             "message":{"content":self._content}
@@ -133,6 +135,18 @@ class DeepSeekTransportTests(unittest.TestCase):
         joined="\n".join(captured.output)
         self.assertNotIn("test-secret-never-log",joined)
         self.assertNotIn("private player text",joined)
+
+    def test_http_200_provider_error_body_is_retried_once(self):
+        _FakeClient.reset([_Response("body_error"),self.valid()])
+        result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
+        self.assertEqual(result,PLAN)
+        self.assertEqual(_FakeClient.calls,2)
+
+    def test_malformed_http_json_is_retried_once(self):
+        _FakeClient.reset([_Response("malformed_response"),self.valid()])
+        result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
+        self.assertEqual(result,PLAN)
+        self.assertEqual(_FakeClient.calls,2)
 
     def test_length_truncation_is_classified_without_repeating_same_request(self):
         _FakeClient.reset([_Response("{}",finish_reason="length")])
