@@ -3,7 +3,10 @@ from __future__ import annotations
 import json
 import os
 import re
+import logging
 from urllib.parse import urlparse
+
+_model_log=logging.getLogger("the_descent.model")
 
 NARRATOR="""你是《恐惧深潜》的恐怖故事主持人，不是客服、审计员、心理医生或规则讲解员。
 玩家已主动选择进入。不要解释它是游戏，不要安慰，不要免责声明，不要解释机制。
@@ -86,9 +89,17 @@ def _completion(messages,max_tokens):
         answer=response.json()["choices"][0]["message"]["content"]
         if isinstance(answer,list):
             answer="".join(str(v.get("text","")) for v in answer if isinstance(v,dict))
-        return _parse(answer[:12000])
-    except Exception:
-        # Never print provider errors: upstream responses might contain secrets or player text.
+        parsed=_parse(answer[:12000])
+        if parsed is None:
+            # Only a safe failure category; never print responses or player text.
+            _model_log.warning("model_reply_unusable provider=%s category=invalid_json",
+                               urlparse(_endpoint()).hostname)
+        return parsed
+    except Exception as ex:
+        status=getattr(getattr(ex,"response",None),"status_code",None)
+        _model_log.warning("model_request_failed provider=%s class=%s http_status=%s",
+                           urlparse(_endpoint()).hostname,type(ex).__name__,
+                           str(status) if status is not None else "none")
         return None
 
 def _history(g):
