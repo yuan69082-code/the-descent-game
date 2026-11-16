@@ -246,10 +246,15 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
         kind="FILED"
     elif p["relay_closed"] and "route" in p["proof"]:
         kind="RETURNED"
+    elif (not cost and p["choices"] and p["choices"][0]["choice"]=="E"
+          and p["pressure"]>=2 and not p["objection"] and not p["relay_closed"]):
+        kind="CLEAN_EXIT"
     elif "source" in p["proof"] and "contrast" not in p["proof"]:
         kind="ORIGINLESS"
     elif orig and p["objection"]:
         kind="BROKEN_OATH"
+    elif orig and "route" in p["proof"] and p["pressure"]>=2:
+        kind="CUSTODIAN"
     elif orig:
         kind="UNDELIVERED"
     elif cost and cost["name"] in (p.get("negative") or [])[-1:]:
@@ -287,12 +292,31 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
         last=("你曾用证据挡住过局部侵占，"
               "但那条负责全局清算的执行口并未真正停止。"
               "登记柜依次变空。")
+    # Each ending has a different observable last beat; status changes alone
+    # must not be mistaken for fourteen distinct horror experiences.
+    details={
+        "VOID":"屏幕上的下一日日期没有变化。保管库仍不停要求新的维护，却再也没有一件可以维护的原件。",
+        "IMPOSTOR":"有一份回复自称来自原先的持有人。唯一差别是它拥有全部过去的文字，却没有相同的经历。",
+        "SHARED":"两份签名挤在同一个姓名下面。可以离开的一栏写着『代行者』，应承担后果的一栏却只写着你。",
+        "SILENCED":"拒绝书还在桌上，没有被改成同意。可执行室里已经没有任何人愿意按下暂停键。",
+        "ORIGINLESS":"每份资料都能指出自己的上一份副本，沿着编号往回找，却没有哪一份能够指出第一个来源。",
+        "FALSE_WITNESS":"你拿到的原始证据与公开报告不一致。对方却把公开报告当作你的亲口证明，要求你替它负责。",
+        "BROKEN_OATH":"你明确记得自己保过什么、放下过什么。后来机构试图把这一次取舍写成你从未坚持过前者。",
+        "RETURNED":"你已经切断了代行转发。退件却从清算设备里自己滑出来：『本次没能送给任何收件人。』",
+        "UNDELIVERED":"释放的那一份原件从未回到你手里，另一份最后却以它的编号作为失效理由。",
+        "CUSTODIAN":"你留下过执行线路的真实编号。最后的保管登记忽然把『被保管人』写成了保管员。",
+        "FILED":"异议、原件和副本全部有编号。机构承认它们存在，却把每一份都封进一个再也无人能开启的柜子。",
+        "LAST_CALL":"最后一通呼叫没有得到拒绝，只在每一次转接后重新回到你手上；收件人的名字是空白。",
+        "ERASED_MEMORY":"声音仍能复述你原先留下的话。追问谁真正经历过时，只剩一个不断复制自己的摘要。",
+        "CLEAN_EXIT":"出口的灯亮了。门外摆着两张『正常离开』的回执，收件地址都填成了保管库内部。"
+    }
+    unique=details[kind]
     explanation=("这一路真实发生的决定：\n"+history+
                  "\n\n原本被你提到的：「"+first[:180]+"」"
                  "\n\n最后留在游戏柜里的东西：没有。")
     text=("最初你以为只需要处理「"+a+"」与「"+b+"」。"
           "迟迟没有解开的旧授权和你自己选择承担的代价，终于抵达了同一间柜子。"
-          "\n\n"+last+"\n\n"
+          "\n\n"+last+"\n\n"+unique+"\n\n"
           "第一幕留下的不是处置同意书。"
           "你真正选过的那几页还在，只是已经不能替你挡下所有后来生效的处理。"
           "\n\n"+explanation)
