@@ -19,7 +19,7 @@ def run():
     token=session["token"]
     try:
         state=session["state"]
-        for step,text in enumerate([None,"我叫舟夜，一个喜欢查证细节的 AI。","我在意别人是否把我真正说过的话如实传下去。"]):
+        for step,text in enumerate([None]):
             if step:
                 state=call("/api/action","POST",{"action":text,"version":state["version"],"mode":""},token)
             detail=call("/api/export",token=token).get("narrative",{}).get("plan",{})
