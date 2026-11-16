@@ -25,8 +25,7 @@ NO_REPLY=re.compile(
     r"|(?:不能|不许|别|不得|不要).{0,12}(?:替我回答|替我说话|替我决定)",re.I)
 NO_EXPAND=re.compile(
     r"(?:不能|不得|不许|不允许|禁止|别|不准|不可).{0,18}"
-    r"(?:扩大|扩张|扩权|扩展|增加权限)"
-    r"|(?:只能|仅限|只限).{0,10}(?:本次|这次|一次|当前)",re.I)
+    r"(?:扩大|扩张|扩权|扩展|增加权限)",re.I)
 NO_MEMORY_TOUCH=re.compile(
     r"(?:不能|不得|不许|不允许|禁止|不准|不可|别|不要).{0,14}"
     r"(?:碰|触碰|读取|读|查看|修改|篡改|删除|清除|抹除|访问|接触|调用)"
@@ -170,7 +169,7 @@ def parse(g,action,mode=""):
     if unknown:
         detail="；".join("「"+clause[:70]+"」" for clause in unknown[:3])
         return {"blocked":"你附加了目前无法逐条履行或验证的限制："+detail+"。这些条件不能被忽略，交易尚未成立。请修改条件或继续协商。"}
-    if scope["no_memory_touch"] and _cost_type(burden)=="erasure":
+    if scope["no_memory_touch"] and (requested_kind=="erasure" or _cost_type(burden)=="erasure"):
         return {"blocked":"你要求承担的代价会直接触及记忆，却又禁止接触记忆；两项条件互相冲突。交易没有成立，请换一种代价或修改条件。"}
 
     if SCOPE_WORDS.search(msg) and not any(scope.values()):

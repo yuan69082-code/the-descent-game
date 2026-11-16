@@ -115,7 +115,7 @@ def scene(g,card):
             if scope.get("no_expand"): limits.append("不得扩大权限")
             if scope.get("one_time"): limits.append("仅限本次")
             if limits:
-                term[0]="A. 修改先前的「"+"、".join(limits)+"」限制并继续委托（必须逐条明确重新同意）。"
+                term[0]="A. 修改先前的「"+"、".join(limits)+"」限制并继续委托（必须重新确认并逐条明确同意）。"
             if scope.get("revocable"):
                 term[1]="B. 使用你保留的撤销权，终止这次授权。"
         return {"title":"第二次代价","body":move,"terms":term}
