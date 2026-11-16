@@ -399,6 +399,67 @@ def _stage3(g:dict,action:str,mode:str):
     if g.get("edition")=="v39":
         _stage3_v39(g,action,mode)
         return
+    p=g["psych"];c=_choice(action,mode)
+    offer=None
+    if g.get("edition")=="v39":
+        from horror_deals import parse as interpret_offer
+        p.pop("offer_notice",None)
+        offer=interpret_offer(g,action,mode)
+        if offer and offer.get("blocked"):
+            p["offer_notice"]=offer["blocked"]
+            g["note"]=offer["blocked"]
+            return
+        if offer:
+            c=offer["choice"]
+    if not c and _investigate(g,action,mode):return
+    if c=="E":
+        if all(x in p["proof"] for x in ("source","route","copy")):
+            p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
+            p["cost"]=None;p["end_reason"]="以独立通道同时保全了两份原件"
+            _commit(g,action,"E","用已验证的独立副本而不是不透明的代行程序保全两项。")
+            g["stage"]=3;p["beat"]=0
+            g["note"]="你找到第三条路。两份原件暂时都保住了；机构会对此提出复核。"
+        else:
+            g["note"]=("你要求第三条路，但还没有找到足够的可执行依据。" +
+            "可以先调查原始记录、转发路由，并真实保存一份独立副本。")
+        return
+    if c not in ("A","B","C","D"):
+        g["note"]=("这次是正式抉择，不会把前两幕的假设话语自动算成同意。" +
+        "你可以明确选择 A/B/C/D，也可以先调查、反对或寻找证据支撑的其他办法。")
+        return
+    if c in ("A","B"):
+        safe,other=("a","b") if c=="A" else ("b","a")
+        p["assets"][safe]["status"]="已保住"
+        p["assets"][other]["status"]="已交出"
+        reason="第三幕明确选择优先保存「"+p["assets"][safe]["label"]+"」，释放「"+p["assets"][other]["label"]+"」的原件"
+        p["consequences"].append({"source":"actual_choice","asset":other,"reason":reason})
+        _commit(g,action,c,reason)
+        g["note"]="原件确实按你的正式决定移动了。这不是前两幕假设回答带来的损失。"
+    else:
+        ix=0 if c=="C" else 1
+        if ix>=len(p["negative"]):
+            g["note"]="这份代价并没有出现在本次游戏的选项里。"
+            return
+        burden=offer["burden"] if offer else p["negative"][ix]
+        p["cost"]=_new_cost(burden,c,g["turn"])
+        if offer:
+            p["cost"]["scope"]=offer["scope"]
+            p["cost"]["scope_conditions"]=offer.get("conditions",[])[:8]
+            p["cost"]["origin"]=offer["origin"]
+            p["cost"]["original_words"]=offer["spoken"][:290]
+        p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
+        conditions=("；限制："+ "、".join(
+            title for key,title in (("no_proxy_reply","不得代替答复"),("no_expand","不得扩大权限"),
+                                   ("no_memory_touch","不得接触记忆"),("no_transfer","不得转授权"),
+                                   ("revocable","保留撤销权"),("one_time","仅限本次"))
+            if offer and offer["scope"].get(key))) if offer else ""
+        if offer and offer.get("conditions"):
+            conditions += "；原始条件："+ "；".join(offer["conditions"][:6])
+        _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全"+conditions+"。")
+        g["note"]=("这次交换真的成功了：两份原件都被保住。" +
+        "你讨厌的代价已经进入世界，但它不会因为被接受就立刻夺走任何东西。")
+    g["stage"]=3;p["beat"]=0
+    _log(g,"第三幕结束，真实选择留下了可追溯的后果。","progress")
 
 def _stage4_v39(g:dict,action:str,mode:str):
     p=g["psych"];cost=p.get("cost")
