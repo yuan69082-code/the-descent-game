@@ -75,8 +75,20 @@
     const response=el('section','response');response.append(el('label','smallLabel',
       current.phase==='epilogue'?'POSTSCRIPT / 最后一行由你写':'YOUR RESPONSE / 你的行动'));
     const ta=el('textarea','control');ta.id='action';ta.rows=4;ta.maxLength=700;ta.placeholder=sc.placeholder||'你的决定……';response.append(ta);
+    let actionMode={value:''};
+    if(current.phase!=='epilogue'){
+      const hint=el('label','smallLabel','行动类型（可选，仅区分意图，不改变游戏规则）');
+      const picker=el('select','control');picker.id='actionMode';
+      [['','自动理解'],['ask','询问'],['inspect','调查'],['interact','实际操作'],
+       ['choose','选择选项'],['submit','正式提交'],['refuse','明确拒绝'],
+       ['negotiate','交涉'],['talk','对话']].forEach(([id,title])=>{
+         const opt=el('option','',title);opt.value=id;picker.append(opt);
+       });
+      hint.setAttribute('for','actionMode');
+      response.append(hint,picker);actionMode=picker;
+    }
     const row=el('div','rowActions');
-    const submit=button(current.phase==='epilogue'?'保存最后一句':'提交行动',async()=>{if(!ta.value.trim())return toast('请写下你的行动。');submit.disabled=true;try{current=await api('action',{method:'POST',body:JSON.stringify({action:ta.value,version:current.version})});showGame();}catch(e){toast(e.message);submit.disabled=false;}} ,'btn primary');
+    const submit=button(current.phase==='epilogue'?'保存最后一句':'提交行动',async()=>{if(!ta.value.trim())return toast('请写下你的行动。');submit.disabled=true;try{current=await api('action',{method:'POST',body:JSON.stringify({action:ta.value,version:current.version,mode:actionMode.value})});showGame();}catch(e){toast(e.message);submit.disabled=false;}} ,'btn primary');
     ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();submit.click();}});
     row.append(submit,button('复制场景给 AI',copyScene,'btn subtle'));
     if(current.phase==='epilogue'){

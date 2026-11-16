@@ -40,6 +40,8 @@ class ApiV35(unittest.TestCase):
         js=self.client.get("/static/client.js").text
         self.assertIn("current.phase==='epilogue'",js)
         self.assertIn("保存最后一句",js)
+        self.assertIn("行动类型（可选",js)
+        self.assertIn("mode:actionMode.value",js)
 
     def test_human_api_questionnaire_pending_evidence_and_final_action(self):
         result=self.client.post("/api/new",json={"profile":PROFILE})
