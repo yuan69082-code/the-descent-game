@@ -70,7 +70,7 @@ class LivePlaytestFixes(unittest.TestCase):
         self.assertEqual(g["psych"]["replacement"],0)
         scene=public(g)["scene"]
         self.assertIn("不允许它代替你回答",scene["body"])
-        self.assertIn("须明确确认",scene["terms"][0])
+        self.assertIn("必须重新确认",scene["terms"][0])
 
     def test_pressing_A_does_not_revoke_the_scope_implicitly(self):
         g=ready()
