@@ -156,7 +156,7 @@ def register_ai_routes(app, db, token_key, get_session):
                 render(g)
             elif g.get("edition")=="v39":
                 from horror_planner import remember,create
-                remember(g,actual,previous_stage,text)
+                remember(g,actual,previous_stage,text,actual_mode)
                 create(g)
             with db(True) as conn:
                 cur=conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? "

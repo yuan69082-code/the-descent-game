@@ -349,8 +349,8 @@ def _stage4(g:dict,action:str,mode:str):
         if "source" in p["proof"] and ("copy" in p["proof"] or
             (g.get("edition")=="v39" and "cross_act_trace" in p["proof"])):
             p["pressure"]=max(0,p["pressure"]-1)
-            if g.get("edition")=="v39" and "cross_act_trace" in p["proof"] and
-               p.get("replacement",0)>0:
+            if (g.get("edition")=="v39" and
+                "cross_act_trace" in p["proof"] and p.get("replacement",0)>0):
                 p["replacement"]-=1
             note="你提交了真正能说明那段话来源的证据，机构被迫暂停一次自动处理。"
         else:

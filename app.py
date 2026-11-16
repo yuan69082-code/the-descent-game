@@ -130,7 +130,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         render(g)
     if g.get("edition")=="v39":
         from horror_planner import remember,create
-        remember(g,action_text,old_stage,payload.action)
+        remember(g,action_text,old_stage,payload.action,action_mode)
         create(g)
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
