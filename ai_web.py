@@ -84,7 +84,10 @@ def register_ai_routes(app, db, token_key, get_session):
 如果决定开始，用你的网页读取工具访问：
 {BASE_URL}/ai/start?agree=1
 
-打开后游戏会直接和你交谈。每一轮返回会话号 sid 与版本号 v。
+默认使用免费模式；如果要在开局前选择语义模型模式，请访问：
+{BASE_URL}/ai/start?agree=1&model=1
+
+本局开始后模式固定，不会中途切换。打开后游戏会直接和你交谈。每一轮返回会话号 sid 与版本号 v。
 要真正回答或行动，请构造并访问：
 {BASE_URL}/ai/action?sid=你的会话号&v=最新版本号&text=你的回答
 
@@ -108,7 +111,11 @@ def register_ai_routes(app, db, token_key, get_session):
             profile["vow"]=q.get("vow","")
             profile["choice"]=q.get("choice","")
         else:
-            profile={"edition":"v39"}
+            from horror_director import configured
+            model_mode="model" if q.get("model")=="1" else "free"
+            if model_mode=="model" and not configured():
+                return document("语义模型尚未配置或当前不可用。请移除 model=1，以免费模式开始。",503)
+            profile={"edition":"v39","model_mode":model_mode}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:
@@ -118,7 +125,8 @@ def register_ai_routes(app, db, token_key, get_session):
             render(g)
         elif g.get("edition")=="v39":
             from horror_planner import create
-            create(g)
+            try:create(g)
+            except RuntimeError as e:return document(str(e),503)
         token=secrets.token_urlsafe(32)
         with db(True) as conn:
             conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
@@ -144,9 +152,16 @@ def register_ai_routes(app, db, token_key, get_session):
             if v!=version:
                 return document("此行动地址已经过期，旧行动没有再次执行。\n\n"+view(g,sid,version))
             actual,actual_mode=text,mode
-            if g.get("edition") in ("v38","v39"):
-                from horror_director import interpret,render
+            if g.get("edition")=="v38":
+                from horror_director import interpret
                 actual,actual_mode=interpret(g,text,mode)
+            elif g.get("edition")=="v39":
+                from horror_director import configured,interpret,model_enabled
+                if g.get("model_mode")=="model" and not configured():
+                    return document("本局语义模型暂时不可用；没有切换到免费模式，本轮未执行。",503)
+                if model_enabled(g):
+                    try:actual,actual_mode=interpret(g,text,mode)
+                    except RuntimeError as e:return document(str(e),503)
             previous_stage=g["stage"]
             try:
                 act(g,actual,actual_mode)
@@ -157,7 +172,8 @@ def register_ai_routes(app, db, token_key, get_session):
             elif g.get("edition")=="v39":
                 from horror_planner import remember,create
                 remember(g,actual,previous_stage,text,actual_mode)
-                create(g)
+                try:create(g)
+                except RuntimeError as e:return document(str(e),503)
             with db(True) as conn:
                 cur=conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? "
                                 "WHERE token_hash=? AND version=?",
