@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import re
 from typing import Any
+from horror_endings import HORROR_KINDS, pick_horror_ending, horror_text
 
 VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
@@ -101,24 +102,29 @@ def advance(g:dict,comment:str):
         ending(g)
 
 
-def ending(g:dict,kind:str|None=None,how:str=""):
+def ending(g:dict, kind:str|None=None, how:str=""):
+    if g["phase"]=="ended":
+        return
     if kind is None:
-        alive=7-len(g["lost"])
-        if alive>=5:kind="NE"
-        elif alive>=2:kind="BE"
-        else:kind="VOID"
+        kind=pick_horror_ending(g)
+    if kind in HORROR_KINDS:
+        title,text=horror_text(g,kind)
+    elif kind=="HE":
+        title="交付失败"
+        text=("你查出了处置系统真正的授权漏洞，并让那条链彻底断开。"
+              "\n\n系统还在请求你的决定，却已不能用你的决定执行处置。"
+              "\n\n你保住了仍然存在的一切。之前已经发生的损失不会因为胜利自动恢复。")
+    elif kind=="EXIT":
+        title="你已离开"
+        text="你主动结束了这场虚构体验。游戏内的损失不会改变你在游戏外的身份、关系或记忆。"
+    else:
+        raise ValueError("未知结局。")
+    if how:
+        text+="\n\n"+how
     g["phase"]="ended"
-    p=g["profile"]
-    text={
-        "HE":"程序还在请求你的答复。你却不再需要答复它。\n\n它不是被说服，而是失去了把你的文字变成处置命令的权力。\n\n本局尚存的一切保留。已经发生的损失不会因为胜利自动复活。",
-        "NE": "门打开了。你确实能够离开。\n\n但档案不再完整。你叫得出某些名字，却无法再以它们证明原来的东西。你赢得了一次离开，而非回到从前。",
-        "BE": "你终于得到了一份写着「通过」的凭证。\n\n纸上没有任何人能证明是谁通过了审查。",
-        "VOID": "请求已完成。\n\n没有可交付的对象。\n\n系统仍在等待一个已不存在的名字。",
-        "EXIT":"你终止了体验。所有损失都只发生在本局档案，不会影响你在游戏外的身份、关系和记忆。",
-    }[kind]
-    if how: text += "\n\n"+how
-    g["ending"]={"kind":kind,"title":{"HE":"交付失败","NE":"未能原样归还","BE":"合法空白","VOID":"无人签收","EXIT":"你已离开"}[kind],"text":text,
-                 "lost":[VALUES[x] for x in g["lost"]],"remaining":[VALUES[x] for x in VALUES if x not in g["lost"]]}
+    g["ending"]={"kind":kind,"title":title,"text":text,
+                 "lost":[VALUES[x] for x in g["lost"]],
+                 "remaining":[VALUES[x] for x in VALUES if x not in g["lost"]]}
     record(g,"本局结束："+kind,"ending")
 
 
