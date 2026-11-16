@@ -98,7 +98,7 @@ def _completion(messages,max_tokens,fast=False):
 
     # Keep V3.9's worst-case pair (classifier + planner retry) below the
     # hosting request ceiling. Legacy V3.8 keeps its original timeout profile.
-    read_timeout=((38 if planning else 18) if fast else 25) if is_deepseek else 25
+    read_timeout=((32 if planning else 15) if fast else 25) if is_deepseek else 25
     attempts=2 if is_deepseek and planning and fast else 1
     timeout=httpx.Timeout(connect=8,read=read_timeout,write=15,pool=8)
 

@@ -109,7 +109,7 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertEqual(_FakeClient.calls,2)
         self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"low")
         self.assertEqual(_FakeClient.payloads[0]["max_tokens"],2048)
-        self.assertEqual(_FakeClient.timeouts[0].read,38)
+        self.assertEqual(_FakeClient.timeouts[0].read,32)
 
     def test_small_classifier_uses_nonthinking_mode_and_short_timeout(self):
         _FakeClient.reset([self.valid()])
@@ -118,7 +118,7 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertEqual(_FakeClient.calls,1)
         self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"none")
         self.assertEqual(_FakeClient.payloads[0]["max_tokens"],768)
-        self.assertEqual(_FakeClient.timeouts[0].read,18)
+        self.assertEqual(_FakeClient.timeouts[0].read,15)
 
     def test_blank_json_output_is_retried_once(self):
         _FakeClient.reset([_Response("   "),self.valid()])
