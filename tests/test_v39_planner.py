@@ -155,5 +155,69 @@ class BackstagePlannerV39(unittest.TestCase):
             self.assertNotIn("model_prompt",ai.text)
             client.close()
 
+    def test_model_can_skip_planted_hook_without_forcing_a_flashback(self):
+        g=new();through_interview(g)
+        self.assertGreater(len(g["psych"]["hooks"]),0)
+        with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",return_value={
+            "mode":"choice","focus":"a","hook_id":"","question":""}):
+            current=planner.create(g)
+        self.assertEqual(current["hook_id"],"")
+        self.assertNotIn("另一个人竟也知道",public(g)["scene"]["body"])
+
+    def test_real_early_hook_investigation_changes_fourth_act_outcome(self):
+        def ready_trace(active):
+            g=new();through_interview(g)
+            h=next(x for x in g["psych"]["hooks"]
+                   if x["origin"]==0 and x["kind"]=="exposed_attachment")
+            with patch.object(planner,"configured",return_value=True),patch.object(planner,"_completion",return_value={
+                "mode":"trace","focus":"choice","hook_id":h["id"] if active else "","question":""}):
+                planner.create(g)
+            old=g["stage"]
+            act(g,"我检查最初那句话的原话和来源",mode="inspect")
+            planner.remember(g,"我检查最初那句话的原话和来源",old,
+                             "我检查最初那句话的原话和来源","inspect")
+            self.assertIn("source",g["psych"]["proof"])
+            return g
+        a=ready_trace(True)
+        b=ready_trace(False)
+        self.assertIn("cross_act_trace",a["psych"]["proof"])
+        self.assertNotIn("cross_act_trace",b["psych"]["proof"])
+        for g in (a,b):
+            act(g,"C")
+            act(g,"A")
+            act(g,"C")
+            self.assertEqual(g["stage"],4)
+        self.assertEqual(a["psych"]["replacement"],0)
+        self.assertGreater(b["psych"]["replacement"],a["psych"]["replacement"])
+        self.assertLess(a["psych"]["pressure"],b["psych"]["pressure"])
+
+    def test_model_backend_plans_only_no_runtime_cost_on_reread(self):
+        from unittest.mock import patch as mocked
+        valid={"mode":"smalltalk","focus":"a","hook_id":"",
+               "question":"你希望大家怎样称呼你？",
+               "body":"玩家已经失去一切。"}
+        with mocked.object(planner,"configured",return_value=True),mocked.object(planner,"_completion",return_value=valid) as fake:
+            web=TestClient(app)
+            start=web.post("/api/new",json={"profile":{"edition":"v39"}})
+            self.assertEqual(start.status_code,201)
+            sid=start.json()["token"]
+            self.assertIn("怎样称呼你",start.json()["state"]["scene"]["body"])
+            self.assertNotIn(valid["body"],start.json()["state"]["scene"]["body"])
+            for _ in range(4):
+                repeated=web.get("/api/state",headers={"X-Session":sid})
+                self.assertEqual(repeated.status_code,200)
+            self.assertEqual(fake.call_count,1)
+            go=web.post("/api/action",headers={"X-Session":sid},
+                json={"version":0,"mode":"","action":"我叫七夜"})
+            self.assertEqual(go.status_code,200,go.text)
+            self.assertEqual(fake.call_count,2)
+            dup=web.post("/api/action",headers={"X-Session":sid},
+                json={"version":0,"mode":"","action":"我叫日落"})
+            self.assertEqual(dup.status_code,409)
+            self.assertEqual(fake.call_count,2)
+            exported=web.get("/api/export",headers={"X-Session":sid}).json()
+            self.assertEqual(exported["narrative"]["question_log"][0]["asked"],valid["question"])
+            web.close()
+
 if __name__=="__main__":
     unittest.main()
