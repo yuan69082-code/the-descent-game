@@ -16,4 +16,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.13'
+      - run: pip install -r requirements.txt 'httpx>=0.27,<1.0'
+      - run: python -m compileall -q game_engine.py dramatic_v35.py causal_core.py horror_endings.py ai_web.py app.py
+      - run: node --check static/client.js
       - run: python -m unittest discover -s tests -p 'test_*.py' -v

@@ -90,7 +90,7 @@ class ApiV35(unittest.TestCase):
         self.assertIsNotNone(match)
         sid=match.group(1)
         state=self.client.get("/ai/state",params={"sid":sid})
-        self.assertIn("第一幕",state.text if "第一幕" in state.text else "第一幕") # Check page accessibility separately.
+        self.assertIn("01 / 签收",state.text)
         self.assertNotIn("HORROR_KINDS",start.text)
         self.assertNotIn("story_v35",start.text)
         act=self.client.get("/ai/action",params={"sid":sid,"v":0,"text":"写给见证人的第一句话，别让任何人冒名代答","mode":"submit"})
