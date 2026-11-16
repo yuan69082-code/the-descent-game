@@ -66,12 +66,12 @@ def _completion(messages,max_tokens):
         return None
     try:
         import httpx
-        with httpx.Client(timeout=httpx.Timeout(16,connect=4),follow_redirects=False) as client:
+        with httpx.Client(timeout=httpx.Timeout(25,connect=5),follow_redirects=False) as client:
             response=client.post(_endpoint(),headers={
                 "Authorization":"Bearer "+os.environ["HORROR_LLM_API_KEY"].strip(),
                 "Content-Type":"application/json"},json={
                 "model":os.environ["HORROR_LLM_MODEL"].strip(),
-                "messages":messages,"max_tokens":max_tokens,"temperature":0.85})
+                "messages":messages,"max_completion_tokens":max(320,max_tokens),"temperature":0.85})
         response.raise_for_status()
         answer=response.json()["choices"][0]["message"]["content"]
         if isinstance(answer,list):
@@ -120,6 +120,8 @@ def render(g):
     if g.get("edition")!="v38":
         return
     director=g.setdefault("director",{"mode":"rules","scene":None,"calls":0})
+    if g["phase"]=="ended":
+        return
     if not configured():
         director["mode"]="rules";director["scene"]=None
         return
@@ -146,12 +148,18 @@ def render(g):
         director["mode"]="rules";director["scene"]=None;return
     director["scene"]={"turn":g["turn"],"stage":stage,"phase":g["phase"],
                        "title":title,"body":body}
+    if g["phase"]=="epilogue":
+        director["ending_text"]=body
     director["mode"]="model"
     director["calls"]=director.get("calls",0)+1
 
 def paint(g,result):
     director=g.get("director") or {}
     s=director.get("scene") or {}
+    if (g.get("phase")=="ended" and g.get("ending") and
+        director.get("mode")=="model" and
+        director.get("ending_text") and g["ending"].get("kind")!="EXIT"):
+        result["ending"]={**result["ending"],"text":director["ending_text"]}
     if (director.get("mode")=="model" and
         s.get("turn")==g.get("turn") and
         s.get("stage")==g.get("stage") and
