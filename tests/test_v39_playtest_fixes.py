@@ -175,7 +175,7 @@ class V310PlaytestRegressions(unittest.TestCase):
         self.assertEqual(g["stage"],4)
         act(g,"A","choose")
         self.assertEqual(g["psych"]["beat"],1)
-        first=cost["level"]
+        first=g["psych"]["replacement"]
         act(g,"A","choose")
         self.assertEqual(g["phase"],"epilogue")
         self.assertTrue(cost["active"])

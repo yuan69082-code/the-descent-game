@@ -129,6 +129,17 @@ def _record_correction(g:dict,text:str)->bool:
                 relationship["confirmed_relation"]=new_relation
         for key in ("answers","probes"):
             p[key]=[update_relation(value) for value in p.get(key,[])]
+        p["first_words"]=update_relation(p.get("first_words",""))
+        p["official_copy"]=update_relation(p.get("official_copy",""))
+        for hook in p.get("hooks",[]):
+            hook["detail"]=update_relation(hook.get("detail",""))
+        for choice in p.get("choices",[]):
+            for key in ("text","result"):
+                if choice.get(key):
+                    choice[key]=update_relation(choice[key])
+        for consequence in p.get("consequences",[]):
+            if consequence.get("reason"):
+                consequence["reason"]=update_relation(consequence["reason"])
     else:
         match=re.search(
             r"不是[「『\"“]?([^，,。；;]{1,28})[」』\"”]?[，,]?(?:而是|其实是)[「『\"“]?([^，,。；;]{1,40})",
