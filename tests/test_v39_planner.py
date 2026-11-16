@@ -122,14 +122,14 @@ class BackstagePlannerV39(unittest.TestCase):
             "mode":"echo","focus":"aversion","hook_id":h["id"],"question":""}):
             planner.create(g)
         self.assertEqual(h["seen_at"],[2,3])
-        self.assertIn("假设",public(g)["scene"]["body"])
+        self.assertIn("不是签名",public(g)["scene"]["body"])
         self.assertEqual(g["psych"]["assets"]["a"]["status"],"已保住")
 
     def test_unconfigured_fallback_still_follows_user_not_same_input(self):
         a,b=new(),new()
         planner.create(a);planner.create(b)
         submit(a,"小舟");submit(b,"阿页")
-        self.assertNotEqual(a["psych"]["hooks"],b["psych"]["hooks"])
+        self.assertNotEqual(a["psych"]["literal_actions"],b["psych"]["literal_actions"])
         # Same script questions still have system-driven context; never fabricate a new consent.
         self.assertEqual(a["psych"]["choices"],b["psych"]["choices"])
 

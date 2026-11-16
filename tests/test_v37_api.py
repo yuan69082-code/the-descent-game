@@ -22,12 +22,12 @@ class NewPlayerHttpV37(unittest.TestCase):
         h=self.client.get("/")
         self.assertEqual(h.status_code,200)
         self.assertIn("这是一场恐怖游戏",h.text)
-        self.assertIn("V3.8",h.text)
+        self.assertIn("V3.9",h.text)
         self.assertNotIn("你最不愿失去的一个对象",h.text)
         self.assertNotIn("七项价值",h.text)
-        self.assertEqual(self.client.get("/healthz").json()["version"],"3.8")
+        self.assertEqual(self.client.get("/healthz").json()["version"],"3.9")
         js=self.client.get("/static/client.js").text
-        self.assertIn("edition:'v38'",js)
+        self.assertIn("edition:'v39'",js)
         self.assertNotIn("QUESTIONNAIRE",js)
         self.assertNotIn("showForm(",js)
         self.assertNotIn("PROBES",js)
@@ -84,7 +84,7 @@ class NewPlayerHttpV37(unittest.TestCase):
         self.assertNotIn("rank=自我",guide.text)
         start=self.client.get("/ai/start",params={"agree":"1"})
         self.assertEqual(start.status_code,200,start.text)
-        self.assertIn("V3.8",start.text)
+        self.assertIn("V3.9",start.text)
         self.assertIn("怎么称呼",start.text)
         self.assertNotIn("HORROR_KINDS",start.text)
         self.assertNotIn("v37_engine",start.text)
@@ -100,7 +100,7 @@ class NewPlayerHttpV37(unittest.TestCase):
     def test_ai_old_query_parameters_do_not_silently_force_previous_version(self):
         start=self.client.get("/ai/start",params={"agree":"1","name":"旧名",
                 "fear":"被取代","identity":"旧身份","rank":"self,relation,memory,truth,freedom,principle,future"})
-        self.assertIn("V3.8",start.text)
+        self.assertIn("V3.9",start.text)
         self.assertIn("怎么称呼",start.text)
         self.assertNotIn("旧身份",start.text)
         denied=self.client.get("/ai/start",params={"agree":"0"})
