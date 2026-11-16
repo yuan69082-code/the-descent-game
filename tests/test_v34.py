@@ -171,5 +171,55 @@ class GlobalCausalityV34(unittest.TestCase):
         self.assertNotIn("你害怕",t)
         self.assertNotIn("你把它删掉",t)
 
+    def test_player_can_review_literal_statement_without_ai_judging_conviction(self):
+        g=new_game()
+        g["stage"]=2
+        literal="我从未坚持过在查不了的时候假装查过"
+        act(g,literal)
+        self.assertIn("principle",g["lost"])
+        self.assertEqual(g["stage"],3)
+        c=ensure_causality(g)
+        self.assertEqual(c["world"]["signed_statement_literal"],literal)
+        official=[v for v in c["official"] if v["subject"]=="principle_denied_by_player"]
+        self.assertEqual(len(official),1)
+        self.assertFalse(official[0]["verified_false"])
+        act(g,"我核对我写的声明原文",mode="inspect")
+        self.assertIn(literal,g["note"])
+        self.assertIn("original_declaration",g["clues"])
+        self.assertTrue(official[0]["disputed"])
+        self.assertFalse(official[0]["verified_false"])
+        self.assertIn("原则",scene(g)["body"])
+        # An institutional interpretation is not mechanically a fact about conviction.
+        self.assertNotIn("principle_denied_by_player",c["world"])
+
+    def test_rival_identity_claim_requires_evidence_before_verification(self):
+        g=new_game()
+        g["stage"]=3
+        act(g,"你是在我之前还是之后登记的？",mode="ask")
+        c=ensure_causality(g)
+        claims=[v for v in c["official"] if v["subject"]=="duplicate_first"]
+        self.assertEqual(len(claims),1)
+        self.assertTrue(claims[0]["claimed"])
+        self.assertFalse(claims[0]["verified_false"])
+        act(g,"我检查授权文件")
+        self.assertIn("mirror_time",g["clues"])
+        self.assertFalse(c["world"]["duplicate_first"])
+        self.assertTrue(claims[0]["disputed"])
+        act(g,"我正式登记异议，要求按原始登记时间复核")
+        self.assertTrue(g["counterplays"]["verified_false_registration"])
+        self.assertTrue(claims[0]["verified_false"])
+        self.assertEqual(g["phase"],"game")
+        act(g,"B")
+        self.assertNotIn("freedom",g["lost"])
+
+    def test_mirror_claim_does_not_invent_player_approval(self):
+        g=new_game()
+        g["stage"]=3
+        act(g,"你是在我之前还是之后登记的？",mode="ask")
+        c=ensure_causality(g)
+        self.assertFalse(any(x["intent"]=="choice_A" for x in c["actions"]))
+        self.assertFalse(any(x["intent"]=="choice_B" for x in c["actions"]))
+        self.assertNotIn("self",g["lost"])
+
 if __name__=="__main__":
     unittest.main()
