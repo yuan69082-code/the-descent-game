@@ -1,7 +1,7 @@
 """The author's message comes AFTER completed endings, never before or on voluntary exit."""
 import unittest
 from pathlib import Path
-from game_engine import AUTHOR_NOTE, initialize, ending
+from game_engine import AUTHOR_NOTE, initialize, ending, act, scene
 from horror_endings import HORROR_KINDS
 
 ROOT=Path(__file__).resolve().parent.parent
@@ -27,14 +27,22 @@ class AuthorAfterwordTests(unittest.TestCase):
                 g=self.new_game()
                 self.assertNotIn("author_note",g)
                 ending(g,kind)
-                self.assertEqual(g["ending"]["author_note"],AUTHOR_NOTE)
+                self.assertEqual(g["phase"],"epilogue")
+                self.assertEqual(g["ending"]["author_note"],"")
                 self.assertTrue(g["ending"]["text"])
                 self.assertNotIn(AUTHOR_NOTE,g["ending"]["text"])
+                self.assertEqual(scene(g)["chapter"],"终章 / 未寄出的最后一页")
+                act(g,"不留最后的话")
+                self.assertEqual(g["phase"],"ended")
+                self.assertIn("作者",g["ending"]["author_note"])
 
     def test_he_also_shows_author_note(self):
         g=self.new_game()
         ending(g,"HE")
-        self.assertEqual(g["ending"]["author_note"],AUTHOR_NOTE)
+        self.assertEqual(g["ending"]["author_note"],"")
+        self.assertEqual(g["phase"],"epilogue")
+        act(g,"我想保留自己第一幕的原话")
+        self.assertIn("作者",g["ending"]["author_note"])
 
     def test_voluntary_exit_does_not_show_author_note(self):
         g=self.new_game()

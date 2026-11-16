@@ -73,7 +73,7 @@ class V35Regressions(unittest.TestCase):
         g["stage"]=1
         act(g,"C")
         act(g,"我坚持反对这份处置",mode="refuse")
-        act(g,"我询问证据",mode="inspect")
+        act(g,"我检查执行器线路")
         self.assertIn("memory",g["lost"])
 
     def test_ambiguous_principle_statement_does_not_equal_signature(self):

@@ -55,7 +55,8 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"我正式提交异议：这份送达记录没有收件地址")
         self.assertTrue(c["contradictions"][0]["verified"])
         self.assertTrue(g["counterplays"]["verified_false_delivery"])
-        self.assertIn("不符",g["history"][-1]["text"])
+        self.assertTrue(any("不符" in v["text"] for v in g["history"]))
+        self.assertIn("relation",[x["key"] for x in g["story_v35"]["wins"]])
         act(g,"C")
         self.assertEqual(g["stage"],2)
         self.assertNotIn("memory",g["lost"])
@@ -69,8 +70,11 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"写一封完整的信给伙伴")
         act(g,"我检查信件的收件地址")
         act(g,"C")
-        self.assertIn("memory",g["lost"])
+        self.assertNotIn("memory",g["lost"])
         self.assertEqual(g["stage"],2)
+        act(g,"检查执行器线路")
+        act(g,"检查保管簿上的登记人")
+        self.assertIn("memory",g["lost"])
         self.assertFalse(g["counterplays"].get("verified_false_delivery",False))
 
     def test_identical_final_ending_is_grounded_in_actual_choice(self):
@@ -107,6 +111,8 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"B")
         act(g,"A")
         c=ensure_causality(g)
+        self.assertEqual(g["phase"],"epilogue")
+        act(g,"不留最后的话")
         self.assertEqual(g["phase"],"ended")
         self.assertEqual(len(c["actions"]),7)
         self.assertEqual([x["turn"] for x in c["actions"]],list(range(1,8)))
@@ -155,9 +161,11 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"写一封完整的信给伙伴")
         c=ensure_causality(g)
         self.assertFalse(c["world"]["09f_delivered"])
-        self.assertIn("relation",g["lost"])
+        self.assertNotIn("relation",g["lost"])
         act(g,"B")
         self.assertIn("memory",g["lost"])
+        act(g,"检查执行器线路")
+        self.assertIn("relation",g["lost"])
         self.assertFalse(c["world"]["09f_delivered"])
         self.assertFalse(c["world"]["credential_relation"])
         self.assertFalse(c["world"]["credential_memory"])
@@ -174,7 +182,8 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"我撤销伪造送达的授权链，并隔离执行器的二次确认接点")
         self.assertEqual(g["ending"]["kind"],"HE")
         self.assertEqual(g["stage"],1)
-        self.assertEqual(g["lost"],["relation"])
+        self.assertEqual(g["lost"],[])
+        self.assertIn("relation",[v["key"] for v in g["story_v35"]["wins"]])
         self.assertIn("送达",g["ending"]["text"])
 
     def test_final_narrative_refers_to_decisions_not_unobserved_emotions(self):
@@ -190,7 +199,7 @@ class GlobalCausalityV34(unittest.TestCase):
         g=new_game()
         g["stage"]=2
         literal="我从未坚持过在查不了的时候假装查过"
-        act(g,literal)
+        act(g,literal,mode="submit")
         self.assertIn("principle",g["lost"])
         self.assertEqual(g["stage"],3)
         c=ensure_causality(g)

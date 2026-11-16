@@ -320,7 +320,7 @@ def intent(t:str, mode:str="")->str:
     if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
         return "choice_"+explicit.group(1).upper()
     # Review an actually signed statement, rather than guessing its intent from keywords.
-    if has(text,r"核对|调取|检查|查看|查阅|复核|审查|inspect|review|retrieve") and has(text,r"签署原文|签过的原文|原始声明|完整原文|我的原话|我写的声明|之前的证词|签过的文字|original statement|signed text"):
+    if has(text,r"核对|调取|检查|查看|查阅|复核|审查|inspect|review|retrieve") and has(text,r"签署原文|签过的原文|原始声明|声明原文|草稿原文|完整原文|我的原话|我写的声明|自己写的声明|之前的证词|签过的文字|original statement|signed text"):
         return "review_original"
     # The physical mail slot is a hidden world affordance, not a menu choice.
     SLOT = r"回执槽|投递槽|收件槽|投递口|投信口|收件口|出件口|信件口|邮筒|mail.?slot|letter.?slot|delivery.?slot"

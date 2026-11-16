@@ -75,6 +75,9 @@ class GameV33(unittest.TestCase):
         h["stage"]=1
         add_clue(h,"delivery","发现无地址回执。")
         act(h,"C")
+        self.assertNotIn("memory",h["lost"])
+        act(h,"检查执行器线路")
+        act(h,"检查保管簿上的登记人")
         self.assertIn("memory",h["lost"])
 
     def test_interception_requires_a_real_clue(self):

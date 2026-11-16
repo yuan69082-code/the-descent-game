@@ -95,7 +95,7 @@ def on_clue(g:dict, key:str, desc:str):
                         "turn":g["turn"],"valid":True}
     if key=="original_declaration":
         for claim in c["official"]:
-            if claim["subject"]=="principle_denied_by_player":
+            if claim["subject"] in ("principle_denied_by_player","principle_draft_interpretation"):
                 claim["disputed"]=True
                 if not any(x["subject"]=="principle_denied_by_player" for x in c["contradictions"]):
                     c["contradictions"].append({
