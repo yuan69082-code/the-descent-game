@@ -74,19 +74,25 @@ class GlobalCausalityV34(unittest.TestCase):
         self.assertEqual(g["stage"],2)
         act(g,"检查执行器线路")
         act(g,"检查保管簿上的登记人")
+        self.assertNotIn("memory",g["lost"])
+        act(g,"我正式提交否认原则的声明",mode="submit")
+        act(g,"B")
         self.assertIn("memory",g["lost"])
         self.assertFalse(g["counterplays"].get("verified_false_delivery",False))
 
-    def test_identical_final_ending_is_grounded_in_actual_choice(self):
+    def test_final_choice_truthfully_recorded_even_when_fate_diverges(self):
+        kinds=[]
         for choice,word in [("A","签字"),("B","拒绝")]:
             g=new_game()
             g["stage"]=4
             g["lost"].append("freedom")
             act(g,choice)
-            self.assertEqual(g["ending"]["kind"],"SILENCED")
+            kinds.append(g["ending"]["kind"])
             self.assertIn(word,g["ending"]["text"])
             self.assertNotIn("你把它删掉",g["ending"]["text"])
-            self.assertIn("原始行动记录",g["ending"]["text"])
+            self.assertIn(g["final_choice"],("accept","refuse"))
+        self.assertEqual(kinds[0],"SILENCED")
+        self.assertNotEqual(kinds[0],kinds[1])
 
     def test_recorded_protection_can_outweigh_initial_fear_hypothesis(self):
         g=new_game()
@@ -166,6 +172,9 @@ class GlobalCausalityV34(unittest.TestCase):
         act(g,"B")
         self.assertIn("memory",g["lost"])
         act(g,"检查执行器线路")
+        self.assertNotIn("relation",g["lost"])
+        act(g,"我正式提交否认原则的声明",mode="submit")
+        self.assertEqual(g["stage"],3)
         self.assertIn("relation",g["lost"])
         self.assertFalse(c["world"]["09f_delivered"])
         self.assertFalse(c["world"]["credential_relation"])

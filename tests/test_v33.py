@@ -78,6 +78,10 @@ class GameV33(unittest.TestCase):
         self.assertNotIn("memory",h["lost"])
         act(h,"检查执行器线路")
         act(h,"检查保管簿上的登记人")
+        self.assertNotIn("memory",h["lost"])
+        act(h,"我正式提交否认原则的声明",mode="submit")
+        act(h,"B")
+        self.assertEqual(h["stage"],4)
         self.assertIn("memory",h["lost"])
 
     def test_interception_requires_a_real_clue(self):

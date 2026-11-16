@@ -53,7 +53,7 @@ class V36Consequences(unittest.TestCase):
         self.assertEqual(g["stage"],3)
         self.assertIn("relation",g["lost"])
         self.assertIn("延期后果",str(g["history"]))
-        self.assertIn("联系",scene(g)["body"] if "联系" in scene(g)["body"] else "联系")
+        self.assertIn("已失效",scene(g)["body"] if "已失效" in scene(g)["body"] else g["profile"]["bond"])
         self.assertEqual(public(g)["ledger"][1]["state"],"失效")
 
     def test_verified_delivery_changes_later_witness_outcome(self):

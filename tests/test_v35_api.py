@@ -58,7 +58,7 @@ class ApiV35(unittest.TestCase):
             state=response.json()
         send("这句话只有我们两人懂，别让别人替我交给你", "submit")
         self.assertEqual(state["stage"],2)
-        self.assertIn("争议中",[x["state"] for x in state["ledger"]])
+        self.assertIn("受理中",[x["state"] for x in state["ledger"]])
         send("我检查邮寄回执的收件地址")
         send("我正式登记异议，签收人地址不实")
         self.assertNotIn("争议中",[x["state"] for x in state["ledger"]])
