@@ -115,7 +115,12 @@ def _grow_cost(g:dict):
         return
     kind=cost["kind"]
     if kind in ("surveillance","distortion"):
-        p["replacement"]+=1
+        if cost.get("scope",{}).get("no_proxy_reply"):
+            # Gaining knowledge from monitoring is scary, but a player-imposed
+            # no-impersonation limit is not itself permission to speak for them.
+            p["intrusion"]+=1
+        else:
+            p["replacement"]+=1
     elif kind=="isolation":
         p["distance"]+=1
     elif kind=="uncertainty":
@@ -261,6 +266,17 @@ def _commit(g:dict,what:str,choice:str,detail:str=""):
 
 def _stage3(g:dict,action:str,mode:str):
     p=g["psych"];c=_choice(action,mode)
+    offer=None
+    if g.get("edition")=="v39":
+        from horror_deals import parse as interpret_offer
+        p.pop("offer_notice",None)
+        offer=interpret_offer(g,action,mode)
+        if offer and offer.get("blocked"):
+            p["offer_notice"]=offer["blocked"]
+            g["note"]=offer["blocked"]
+            return
+        if offer:
+            c=offer["choice"]
     if not c and _investigate(g,action,mode):return
     if c=="E":
         if all(x in p["proof"] for x in ("source","route","copy")):
@@ -290,10 +306,18 @@ def _stage3(g:dict,action:str,mode:str):
         if ix>=len(p["negative"]):
             g["note"]="这份代价并没有出现在本次游戏的选项里。"
             return
-        burden=p["negative"][ix]
+        burden=offer["burden"] if offer else p["negative"][ix]
         p["cost"]=_new_cost(burden,c,g["turn"])
+        if offer:
+            p["cost"]["scope"]=offer["scope"]
+            p["cost"]["origin"]=offer["origin"]
+            p["cost"]["original_words"]=offer["spoken"][:290]
         p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
-        _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全。")
+        conditions=("；限制："+ "、".join(
+            title for key,title in (("no_proxy_reply","不得代替答复"),("no_expand","不得扩大权限"),
+                                   ("revocable","保留撤销权"),("one_time","仅限本次"))
+            if offer and offer["scope"].get(key))) if offer else ""
+        _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全"+conditions+"。")
         g["note"]=("这次交换真的成功了：两份原件都被保住。" +
         "你讨厌的代价已经进入世界，但它不会因为被接受就立刻夺走任何东西。")
     g["stage"]=3;p["beat"]=0
@@ -301,6 +325,8 @@ def _stage3(g:dict,action:str,mode:str):
 
 def _stage4(g:dict,action:str,mode:str):
     p=g["psych"]
+    if g.get("edition")=="v39":
+        p.pop("offer_notice",None)
     c=_choice(action,mode)
     if not c and _investigate(g,action,mode):return
     if c=="D":
@@ -320,6 +346,19 @@ def _stage4(g:dict,action:str,mode:str):
     beat=p["beat"]
     cost=p["cost"]
     if c=="A":
+        if (g.get("edition")=="v39" and cost and
+            cost.get("scope",{}).get("no_expand")):
+            from horror_deals import is_scope_override
+            if not is_scope_override(action):
+                message=("你先前明说权限不能扩大。现在对方要求增加权限，"
+                         "与原交易相冲突。没有执行。"
+                         "如果决定改变约定，必须明确写出你愿意解除不扩大的限制；"
+                         "否则可以拒绝、调查或要求其他交换。")
+                p["offer_notice"]=message
+                g["note"]=message
+                return
+            cost["scope"]["no_expand"]=False
+            _log(g,"玩家明确修改了旧约定的不扩大限制。","choice")
         if cost is None:
             burden=p["negative"][0]
             cost=_new_cost(burden,"4A",g["turn"])
