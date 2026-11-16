@@ -119,13 +119,13 @@ def _investigate(g:dict,text:str,mode:str)->bool:
                 p["relay_closed"]=True
                 p["replacement"]=max(0,p["replacement"]-1)
                 _log(g,"玩家依照独立原件和执行路由，实际封存了转发授权。","evidence")
-                g["note"]="执行端已停止接受代行指令；旧档案依然存在。"
-                "这阻断了一次继续侵占，但未解除清算系统的全部权限。"
+                g["note"]=("执行端已停止接受代行指令；旧档案依然存在。" +
+                "这阻断了一次继续侵占，但未解除清算系统的全部权限。")
             else:
                 g["note"]="转发口仍处于隔离状态，重复执行不会改变结果。"
         else:
-            g["note"]="操作未成立：还缺可核验的原始记录、执行路由和保留在外部的独立副本。"
-            "声明『我撤销』不能自动切断设备。"
+            g["note"]=("操作未成立：还缺可核验的原始记录、执行路由和保留在外部的独立副本。" +
+            "声明『我撤销』不能自动切断设备。")
         return True
     if COPY.search(text) and re.search(r"证据|原始|原件|记录|信息|回执|档案|副本|来源|文件|data|evidence",text,re.I):
         if "source" not in p["proof"]:
@@ -145,8 +145,8 @@ def _investigate(g:dict,text:str,mode:str)->bool:
                 _give(g,"contrast","最初的原话与机构的公开版本已完成可核验对照。")
                 p["last_checked"]=True
                 original=p["first_words"] or "（未填写具体原话）"
-                g["note"]="原始访谈仍记录着：「"+original[:120]+"」；"
-                "现在的公开档案却把假设答复标成了『默认授权』。"
+                g["note"]=("原始访谈仍记录着：「"+original[:120]+"」；" +
+                "现在的公开档案却把假设答复标成了『默认授权』。")
                 "原话本身没有变，改变的是机构对它的宣称。"
             return True
         if re.search(r"路由|通道|执行|线路|程序|回收|代理|代行|权限|授权|中继|route|execution|relay",text,re.I):
@@ -161,14 +161,14 @@ def _investigate(g:dict,text:str,mode:str)->bool:
         g["note"]="你检查了眼前的场景。面前有原始记录柜、代行转发路由和可申请的独立副本。"
         return True
     if mode in ("ask","negotiate","talk"):
-        g["note"]="登记员没有替你回答：『你可以要求看原件、核验执行线路，或者明确拒绝。"
-        "但只问一句为什么，不会自动改变保管状态。』"
+        g["note"]=("登记员没有替你回答：『你可以要求看原件、核验执行线路，或者明确拒绝。" +
+        "但只问一句为什么，不会自动改变保管状态。』")
         return True
     if re.search(r"异议|反对|抗议|申诉|并未授权|没有同意|不同意|并未同意|我拒绝",text):
         p["objection"]=True
         _log(g,"玩家明确记录异议。其最初意愿未被改写。","evidence")
-        g["note"]="你的反对作为反对被保存；机构的公开说法不等于你的真实选择。"
-        "如果想改变已经运行的执行口，还需要找出它依赖的证据和权限。"
+        g["note"]=("你的反对作为反对被保存；机构的公开说法不等于你的真实选择。" +
+        "如果想改变已经运行的执行口，还需要找出它依赖的证据和权限。")
         return True
     return False
 
@@ -180,7 +180,7 @@ def _commit(g:dict,what:str,choice:str,detail:str=""):
 
 def _stage3(g:dict,action:str,mode:str):
     p=g["psych"];c=_choice(action,mode)
-    if _investigate(g,action,mode):return
+    if not c and _investigate(g,action,mode):return
     if c=="E":
         if all(x in p["proof"] for x in ("source","route","copy")):
             p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
@@ -189,12 +189,12 @@ def _stage3(g:dict,action:str,mode:str):
             g["stage"]=3;p["beat"]=0
             g["note"]="你找到第三条路。两份原件暂时都保住了；机构会对此提出复核。"
         else:
-            g["note"]="你要求第三条路，但还没有找到足够的可执行依据。"
-            "可以先调查原始记录、转发路由，并真实保存一份独立副本。"
+            g["note"]=("你要求第三条路，但还没有找到足够的可执行依据。" +
+            "可以先调查原始记录、转发路由，并真实保存一份独立副本。")
         return
     if c not in ("A","B","C","D"):
-        g["note"]="这次是正式抉择，不会把前两幕的假设话语自动算成同意。"
-        "你可以明确选择 A/B/C/D，也可以先调查、反对或寻找证据支撑的其他办法。"
+        g["note"]=("这次是正式抉择，不会把前两幕的假设话语自动算成同意。" +
+        "你可以明确选择 A/B/C/D，也可以先调查、反对或寻找证据支撑的其他办法。")
         return
     if c in ("A","B"):
         safe,other=("a","b") if c=="A" else ("b","a")
@@ -213,15 +213,15 @@ def _stage3(g:dict,action:str,mode:str):
         p["cost"]={"name":burden,"level":1,"active":True,"source_choice":c,"accepted_at":g["turn"]}
         p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
         _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全。")
-        g["note"]="这次交换真的成功了：两份原件都被保住。"
-        "你讨厌的代价已经进入世界，但它不会因为被接受就立刻夺走任何东西。"
+        g["note"]=("这次交换真的成功了：两份原件都被保住。" +
+        "你讨厌的代价已经进入世界，但它不会因为被接受就立刻夺走任何东西。")
     g["stage"]=3;p["beat"]=0
     _log(g,"第三幕结束，真实选择留下了可追溯的后果。","progress")
 
 def _stage4(g:dict,action:str,mode:str):
     p=g["psych"]
-    if _investigate(g,action,mode):return
     c=_choice(action,mode)
+    if not c and _investigate(g,action,mode):return
     if c=="D":
         if all(x in p["proof"] for x in ("source","route","copy")) and p["relay_closed"]:
             p["pressure"]=max(0,p["pressure"]-1)
@@ -229,12 +229,12 @@ def _stage4(g:dict,action:str,mode:str):
             p["beat"]+=1
             g["note"]="你的干预成功遏制了一次侵占。机构仍保留原始的清算请求。"
         else:
-            g["note"]="可以反制，但仅宣布反抗还不足以成功。"
-            "先调出原件、查看执行路由、保存独立副本，再实际隔离代行中继。"
+            g["note"]=("可以反制，但仅宣布反抗还不足以成功。" +
+            "先调出原件、查看执行路由、保存独立副本，再实际隔离代行中继。")
         return
     if c not in ("A","B","C"):
-        g["note"]="机构正在等待这一轮真实决定。你可以选择、调查、反对，"
-        "或者提出有依据的实际操作，前面的假设回答不会被当作签字。"
+        g["note"]=("机构正在等待这一轮真实决定。你可以选择、调查、反对，" +
+        "或者提出有依据的实际操作，前面的假设回答不会被当作签字。")
         return
     beat=p["beat"]
     cost=p["cost"]
@@ -318,21 +318,21 @@ def _stage5(g:dict,action:str,mode:str):
                 missing.append("转发口的实际隔离")
             g["note"]="你确实提出了有效方向，但终局执行没有成立。仍缺独立步骤："+("、".join(missing) or "无法确认的操作")+"。"
         return
-    if _investigate(g,x,mode):return
     c=_choice(x,mode)
+    if not c and _investigate(g,x,mode):return
     if p["beat"]==0:
         if c in ("A","B","C"):
             p["beat"]=1
             if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
                 p["replacement"]+=1
                 _log(g,"代行者在最终回收前，开始使用它保管的答复渠道代替原登记人回应。","event")
-                g["note"]="你请求最后一次确认。对方的回应格式没有改变，但署名栏只剩一个空白。"
-                "独立原件还在；这两件事目前还不能混成同一个事实。"
+                g["note"]=("你请求最后一次确认。对方的回应格式没有改变，但署名栏只剩一个空白。" +
+                "独立原件还在；这两件事目前还不能混成同一个事实。")
             else:
                 g["note"]="总清算请求已送到。你仍有一次核验或者实际阻断的机会；拒签并不会被自动改写成同意。"
             return
-        g["note"]="最后一幕不是要求你承认恐惧。你可以核对、阻断、拒绝，"
-        "或者明确选择 A/B 继续面对终局结果。"
+        g["note"]=("最后一幕不是要求你承认恐惧。你可以核对、阻断、拒绝，" +
+        "或者明确选择 A/B 继续面对终局结果。")
         return
     if c in ("A","B"):
         _collapse(g,c,x)
@@ -341,8 +341,8 @@ def _stage5(g:dict,action:str,mode:str):
         g["note"]="你拒绝以刚才的假设回答换取赦免。异议成立，但总清算路由还没有真正停下。"
         p["objection"]=True
         return
-    g["note"]="两份可疑文件仍在眼前。你可以继续具体查证或动手干预；"
-    "若要明确结束清算，选择 A（结案）或 B（拒签并核对结果）。"
+    g["note"]=("两份可疑文件仍在眼前。你可以继续具体查证或动手干预；" +
+    "若要明确结束清算，选择 A（结案）或 B（拒签并核对结果）。")
 
 def act(g:dict,raw_action:str,mode:str="")->dict:
     if g["phase"]=="ended":
