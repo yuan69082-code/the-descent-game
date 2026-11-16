@@ -196,9 +196,9 @@ class BackstagePlannerV39(unittest.TestCase):
         valid={"mode":"smalltalk","focus":"a","hook_id":"",
                "question":"你希望大家怎样称呼你？",
                "body":"玩家已经失去一切。"}
-        with mocked.object(planner,"configured",return_value=True),mocked.object(planner,"_completion",return_value=valid) as fake:
+        with mocked.object(planner,"configured",return_value=True),mocked.object(planner,"_completion",return_value=valid) as fake, mocked.patch("horror_director.configured",return_value=True):
             web=TestClient(app)
-            start=web.post("/api/new",json={"profile":{"edition":"v39"}})
+            start=web.post("/api/new",json={"profile":{"edition":"v39","model_mode":"model"}})
             self.assertEqual(start.status_code,201)
             sid=start.json()["token"]
             self.assertIn("怎样称呼你",start.json()["state"]["scene"]["body"])
