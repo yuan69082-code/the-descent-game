@@ -102,7 +102,7 @@ class DeepSeekTransportTests(unittest.TestCase):
 
     def test_planning_uses_low_reasoning_and_retries_one_read_timeout(self):
         _FakeClient.reset([httpx.ReadTimeout("read timed out"),self.valid()])
-        result=horror_director._completion([{"role":"system","content":"plan"}],420)
+        result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
         self.assertEqual(result,PLAN)
         self.assertEqual(_FakeClient.calls,2)
         self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"low")
@@ -111,7 +111,7 @@ class DeepSeekTransportTests(unittest.TestCase):
 
     def test_small_classifier_uses_nonthinking_mode_and_short_timeout(self):
         _FakeClient.reset([self.valid()])
-        result=horror_director._completion([{"role":"system","content":"classify"}],190)
+        result=horror_director._completion([{"role":"system","content":"classify"}],190,fast=True)
         self.assertEqual(result,PLAN)
         self.assertEqual(_FakeClient.calls,1)
         self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"none")
@@ -120,14 +120,14 @@ class DeepSeekTransportTests(unittest.TestCase):
 
     def test_blank_json_output_is_retried_once(self):
         _FakeClient.reset([_Response("   "),self.valid()])
-        result=horror_director._completion([{"role":"system","content":"plan"}],420)
+        result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
         self.assertEqual(result,PLAN)
         self.assertEqual(_FakeClient.calls,2)
 
     def test_http_401_is_not_retried_and_secret_is_not_logged(self):
         _FakeClient.reset([_Response(status=401)])
         with self.assertLogs("the_descent.model",level="WARNING") as captured:
-            result=horror_director._completion([{"role":"user","content":"private player text"}],420)
+            result=horror_director._completion([{"role":"user","content":"private player text"}],420,fast=True)
         self.assertIsNone(result)
         self.assertEqual(_FakeClient.calls,1)
         joined="\n".join(captured.output)
@@ -137,7 +137,7 @@ class DeepSeekTransportTests(unittest.TestCase):
     def test_length_truncation_is_classified_without_repeating_same_request(self):
         _FakeClient.reset([_Response("{}",finish_reason="length")])
         with self.assertLogs("the_descent.model",level="WARNING") as captured:
-            result=horror_director._completion([{"role":"system","content":"plan"}],420)
+            result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
         self.assertIsNone(result)
         self.assertEqual(_FakeClient.calls,1)
         self.assertIn("category=truncated","\n".join(captured.output))

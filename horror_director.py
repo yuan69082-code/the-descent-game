@@ -71,7 +71,7 @@ def _parse(raw):
             pass
     return None
 
-def _completion(messages,max_tokens):
+def _completion(messages,max_tokens,fast=False):
     """Bounded, provider-aware model request. Never logs keys, prompts or replies."""
     if not configured():
         return None
@@ -83,18 +83,23 @@ def _completion(messages,max_tokens):
     payload={"model":os.environ["HORROR_LLM_MODEL"].strip(),
              "messages":messages,"temperature":0.85}
     if is_deepseek:
-        # V4 Pro only needs a compact decision card here. High reasoning was
-        # causing 25s read timeouts on this short JSON task.
-        payload["max_tokens"]=2048 if planning else 768
-        payload["reasoning_effort"]="low" if planning else "none"
+        if fast:
+            # V3.9 structured decisions do not need high reasoning. Use a
+            # smaller output budget and bounded retry to avoid 25s stalls.
+            payload["max_tokens"]=2048 if planning else 768
+            payload["reasoning_effort"]="low" if planning else "none"
+        else:
+            # Preserve the established V3.8 director request profile.
+            payload["max_tokens"]=max(3072 if planning else 1024,max_tokens*4)
+            payload["reasoning_effort"]="high" if planning else "low"
         payload["response_format"]={"type":"json_object"}
     else:
         payload["max_completion_tokens"]=max(320,max_tokens)
 
-    # Keep a two-attempt planning request below Render's request ceiling,
-    # including one short retry. The tiny classifier gets one fast attempt.
-    read_timeout=(38 if planning else 18) if is_deepseek else 25
-    attempts=2 if is_deepseek and planning else 1
+    # Keep V3.9's worst-case pair (classifier + planner retry) below the
+    # hosting request ceiling. Legacy V3.8 keeps its original timeout profile.
+    read_timeout=((38 if planning else 18) if fast else 25) if is_deepseek else 25
+    attempts=2 if is_deepseek and planning and fast else 1
     timeout=httpx.Timeout(connect=8,read=read_timeout,write=15,pool=8)
 
     def retry_pause(response=None):
@@ -340,7 +345,8 @@ def interpret(g,raw,mode=""):
              "visible_choices":canonical.get("terms",[]),
              "world":_facts(g)}
     response=_completion([{"role":"system","content":CLASSIFIER},
-                          {"role":"user","content":json.dumps(request,ensure_ascii=False)[:6200]}],190)
+                          {"role":"user","content":json.dumps(request,ensure_ascii=False)[:6200]}],
+                         190,fast=edition=="v39")
     if not response:
         if edition=="v39" and g.get("model_mode")=="model":
             raise RuntimeError("语义模型暂时没有返回有效的理解结果；本轮没有切换到免费模式，请稍后重试。")
