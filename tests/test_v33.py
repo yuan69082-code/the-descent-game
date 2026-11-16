@@ -110,6 +110,7 @@ class GameV33(unittest.TestCase):
         g=state()
         act(g,"我检查授权文件")
         act(g,"我检查执行器线路")
+        act(g,"我保存找到的授权与执行记录副本")
         act(g,"我撤销授权链并切断执行器的二次确认接点")
         self.assertEqual(g["ending"]["kind"],"HE")
         self.assertNotIn("HE",HORROR_KINDS)

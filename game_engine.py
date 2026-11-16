@@ -601,7 +601,12 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         if not(has_mechanism and has_outcome):
             g["note"]="你指出了一个矛盾。但现在仍缺少实际操作：从哪一处改变哪个条件？它将如何阻止下一次处置？"
             return g
-        if ("authority" in g["clues"] and "executor" in g["clues"]) or ("custody" in g["clues"] and "executor" in g["clues"]):
+        cp=counterplays(g)
+        verified_provenance=bool(g["flags"]["evidence_copy"] or cp.get("verified_false_delivery") or
+                                 cp.get("verified_false_registration") or
+                                 (cp.get("ownership_claim") and "custody" in g["clues"]))
+        if ("executor" in g["clues"] and ("authority" in g["clues"] or "custody" in g["clues"])
+                and verified_provenance):
             g["flags"]["control_detached"]=True
             recovery="你保住了此刻仍存在的档案。"
             if not g["lost"]: recovery="你在第一次真实处置前截断了权限链。没有任何档案被销毁。"
@@ -612,11 +617,11 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             g["flags"]["control_detached"]=True
             ending(g,"HE","你用原始回执证明送达被伪造，又从执行端撤销了依赖这份假回执的授权链。")
             return g
-        if "authority" in g["clues"] and "custody" in g["clues"] and g["flags"]["evidence_copy"]:
+        if "authority" in g["clues"] and "custody" in g["clues"] and "executor" in g["clues"] and g["flags"]["evidence_copy"]:
             g["flags"]["control_detached"]=True
             ending(g,"HE","你用独立的保管凭据否定了系统的所有权，并将所有仍在的档案转交到自己的名下。")
             return g
-        g["note"]="你找到了篡改入口，但无法单凭这一端完成操作。机器仍有另一条有效执行路径。"
+        g["note"]="你找到了一处执行链的薄弱点，但缺少能在另一端成立的独立依据。此刻强行切断这一处，机器仍能援引另一条链执行。操作暂未成功，既有证据与决定不受影响。"
         return g
     if move=="challenge":
         g["flags"]["authority_disputed"]=True

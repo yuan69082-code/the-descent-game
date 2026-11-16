@@ -166,6 +166,7 @@ class V35Regressions(unittest.TestCase):
         g=fresh()
         act(g,"检查授权文件")
         act(g,"检查执行器线路")
+        act(g,"保存找到的授权与执行记录副本")
         act(g,"撤销授权链并切断执行器的二次确认接点")
         self.assertEqual(g["ending"]["kind"],"HE")
         self.assertEqual(g["phase"],"epilogue")
