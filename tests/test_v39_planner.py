@@ -226,7 +226,7 @@ class BackstagePlannerV39(unittest.TestCase):
             planner.create(g)
         scene=public(g)["scene"]
         self.assertEqual(scene["title"],"两处空位")
-        self.assertIn("第二次敲击",scene["body"])
+        self.assertIn("第二下敲击",scene["body"])
         self.assertIn("A. 留下",scene["terms"][0])
         self.assertNotIn("保管库只有一条",scene["body"])
         self.assertEqual(g["psych"]["choices"],[])
