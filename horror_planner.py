@@ -76,13 +76,15 @@ def _eligible(g):
             x.get("id") and len(x.get("seen_at",[]))<3]
 
 def fallback(g):
-    from v37_engine import QUESTIONS, PROBES
+    from v37_engine import QUESTIONS, PROBES, QUESTIONS_V39, PROBES_V39
     p=g["psych"];stage=g["stage"];seed=_seed(g)
     modes=MODES.get(stage,("echo",))
+    questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
+    probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
     if stage==0:
-        question=QUESTIONS[p["question_index"]]
+        question=questions[p["question_index"]]
     elif stage==1:
-        question=PROBES[p["probe_index"]].format(
+        question=probes[p["probe_index"]].format(
           a=p.get("a",""),b=p.get("b",""),
           n=(p.get("negative") or ["一个讨厌的代价"])[0])
     else:question=""
@@ -111,8 +113,11 @@ def _facts(g):
       "hypothetical_answers":p.get("probes",[])[-6:],
       "actual_decisions":p.get("choices",[])[-5:],
       "known_values":(p.get("a",""),p.get("b","")),
+      "relationships":p.get("relationships",[]),
+      "corrections":p.get("corrections",[])[-8:],
       "disliked":p.get("negative",[]),
       "paid_cost":p.get("cost"),
+      "model_mode":g.get("model_mode","legacy-auto"),
       "protected_status":p.get("assets"),
       "old_hooks":[{"id":x["id"],"from_act":x["origin"]+1,
                     "kind":x["kind"],"detail":x["detail"][:170],
@@ -165,10 +170,16 @@ def create(g):
     if g["phase"]=="ended":return
     default=fallback(g)
     proposal=None
-    if configured() and g["phase"]=="game":
+    mode=g.get("model_mode")
+    use_model=configured() if mode is None else mode=="model" and configured()
+    if mode=="model" and not configured():
+        raise RuntimeError("本局选择了语义模型模式，但模型服务当前不可用；没有切换到免费模式。")
+    if use_model and g["phase"]=="game":
         request=json.dumps(_facts(g),ensure_ascii=False,default=str)[:7900]
         proposal=_completion([{"role":"system","content":INTERNAL_PROMPT},
           {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],420)
+        if not isinstance(proposal,dict):
+            raise RuntimeError("语义模型暂时没有返回有效的策划结果；本轮没有切换到免费模式。请稍后重试。")
     stage=g["stage"]
     current=default.copy()
     applied=False
@@ -220,15 +231,17 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
             if "cross_act_trace" not in p["proof"]:
                 p["proof"].append("cross_act_trace")
     if previous_stage in (0,1):
-        from v37_engine import QUESTIONS,PROBES
+        from v37_engine import QUESTIONS,PROBES,QUESTIONS_V39,PROBES_V39
+        questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
+        probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
         if i<0:return
         plan=p.get("plan") or {}
         planned=plan.get("question","") if plan.get("stage")==previous_stage else ""
         if previous_stage==0:
-            prompt=planned or QUESTIONS[i]
+            prompt=planned or questions[i]
         else:
-            prompt=planned or PROBES[i].format(
+            prompt=planned or probes[i].format(
               a=p.get("a",""),b=p.get("b",""),
               n=(p.get("negative") or [""])[0])
         p["question_log"].append({"act":previous_stage+1,"asked":prompt[:160],
@@ -265,8 +278,8 @@ def _callback(g,card):
     # These are in-world signs, not a claim that an interview was consent.
     focus=card.get("focus","a");stage=g["stage"];kind=hook["kind"]
     if stage==1:
-        return ("你还记得刚才提过「"+detail+"」吗？"
-                "一个很小的变化：假如别人也知道了这句话，你希望他怎样使用它？")
+        return ("「"+detail+"」出现在一份新的登记里。"
+                "登记人写下了你的称呼，却没有写明这句话是谁告诉他的。")
     if kind=="actual_choice":
         if stage==3:
             return ("你刚刚亲自决定过：「"+detail+"」。"
@@ -275,19 +288,16 @@ def _callback(g,card):
         return ("你在前面的真实决定还在起作用：「"+detail+"」。"
                 "当时形成的结果没有消失；另一件事现在也受到了它的影响。")
     if kind=="hypothetical_boundary":
-        return ("有人翻出了你曾经讨论过的一种可能：「"+detail+"」。"
-                "它不是签名，却暴露了你习惯先防守哪一边。"
-                "对方开始利用这个判断安排下一次局面。")
+        return ("「"+detail+"」被抄进一份正式记录。"
+                "落款处写着你的名字，签署时间却比这段谈话早了一天。")
     if kind=="exposed_aversion":
-        return ("你曾提到不愿面对：「"+detail+"」。"
-                "现在它没有以惩罚通知的形式出现；"
-                "它从你刚刚借用的一条联系途径里，悄悄挤进来了。")
+        return ("「"+detail+"」出现在一条新的联系路径里。"
+                "你没有发出请求，屏幕却显示有人已经替你提交。")
     if kind=="exposed_attachment":
-        return ("之前你提到过「"+detail+"」。"
-                "另一个人竟也知道这句话，但他并没有说自己从哪听来。"
-                "被知道，并不代表你曾允许他代替你。")
-    return ("你前面随口提过：「"+detail+"」。"
-            "原本不起眼的一句话，在这次局面里忽然有了另一个用处。")
+        return ("有人在另一份登记里写下「"+detail+"」。"
+                "他知道这件事，却不肯说明信息来源。")
+    return ("一份记录里出现了「"+detail+"」。"
+            "它原本只是普通信息，现在却成了某项处置的依据。")
 
 def paint(g,result):
     if g.get("edition")!="v39" or g["phase"]!="game":return result
@@ -299,13 +309,9 @@ def paint(g,result):
     stage=g["stage"]
     question=card.get("question","")
     if stage<2 and question:
-        lead=("")
-        if stage==1 and p.get("answers"):
-            lead="你前面提过的那些事还在这里。\n\n"
-        scene["body"]=lead+question
-        scene["title"]=("先聊聊" if stage==0 else
-                        {"comparison":"交换顺序","conditions":"界限在哪",
-                         "reversal":"如果反过来","boundary":"你会答应吗"}.get(card.get("mode"),"假如如此"))
+        scene["chapter"]=f"{stage+1:02d}"
+        scene["body"]=question
+        scene["title"]=""
         scene["footer"]=""
         result["note"]=""
     elif stage>=2:
@@ -336,12 +342,18 @@ def paint(g,result):
           "confrontation":"对方不再解释理由。之前的选择都被摆在了眼前。",
           "silence":"门没有锁，仍然没有回应。你还记得这里曾经有人回答过。"
         }
-        grounding=("这一次，对方把目光停在「"+target[:60]+"」上。"
+        grounding=("桌面上的标签写着「"+target[:60]+"」。"
                    if target and stage in (2,3,4) else "")
+        correction=p.get("corrections",[])
+        correction_line=""
+        if correction and correction[-1].get("turn")==g.get("turn"):
+            item=correction[-1]
+            correction_line=("档案上的一行字被划掉，改成：「"+item.get("new",item.get("text",""))[:120]+"」。"
+                             if item.get("new") else "你刚刚更正的内容已经写入档案：「"+item.get("text","")[:120]+"」。")
         if pivot:
-            scene["body"]=pivot+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
-        elif mode in effects:
-            scene["body"]=grounding+effects[mode]+"\n\n"+scene["body"]
+            scene["body"]=correction_line+"\n\n"+pivot+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
+        elif mode in effects or correction_line:
+            scene["body"]=correction_line+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
         # The server's authoritative options stay exactly as the engine provided.
         scene["footer"]=""
         result["note"]=""
