@@ -307,6 +307,9 @@ def intent(t:str, mode:str="")->str:
     # Telephone actions must never be mistaken for a letter or an instruction to sign.
     if has(text,r"挂断|挂掉|按掉|切断通话|重拨|回拨|重新拨|再拨|拨打|拨回|听筒|hang up|redial") and has(text,r"电话|通话|听筒|号码|拨|call|redial"):
         return "phone_action"
+    # Explicitly FILE an objection before parsing incidental registration-time words.
+    if has(text,r"异议|反对|争议|objection|dispute") and has(text,r"正式|提交|登记|存档|入档|备案|file|record|register"):
+        return "file_objection"
     # Asking the rival claimant when their registration happened is not a choice to sign.
     if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
         return "ask_registration_order"
