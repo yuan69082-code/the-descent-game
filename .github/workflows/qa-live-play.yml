@@ -1,0 +1,16 @@
+name: Live private QA playthrough (temporary)
+on:
+  push:
+    branches:
+      - qa-live-playtest-20261116
+jobs:
+  play:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Play against deployed game using its public HTTP API
+        run: python -u scripts/live_qa_play.py
