@@ -277,6 +277,10 @@ def paint(g,result):
         scene["footer"]=""
         result["note"]=""
     elif stage>=2:
+        from horror_scenes_v39 import scene as authored_scene
+        written=authored_scene(g,card)
+        if written:
+            scene.update(written)
         mode=card.get("mode","")
         pivot=_callback(g,card)
         assets=p.get("assets") or {}
