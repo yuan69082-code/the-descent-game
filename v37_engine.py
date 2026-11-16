@@ -451,7 +451,8 @@ def act(g:dict,raw_action:str,mode:str="")->dict:
         g["phase"]="ended"
         g["ending"]["postscript"]={"player_text":"" if action in ("不留最后的话","留空","不留") else action,
                                    "result":"最后的原话被保存，未发送到游戏外。"}
-        g["ending"]["author_note"]="这份记录只证明你在本局说过什么、选择过什么。剩下的解释，交给你。\n\n——《恐惧深潜》作者"
+        g["ending"]["author_note"]=("" if g.get("edition")=="v38" else
+            "这份记录只证明你在本局说过什么、选择过什么。剩下的解释，交给你。\n\n——《恐惧深潜》作者")
         _log(g,"最终自由行动已保存。","postscript")
         return g
     if action.lower() in EXIT_WORDS:
