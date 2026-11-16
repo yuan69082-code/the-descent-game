@@ -309,8 +309,12 @@ def intent(t:str, mode:str="")->str:
     # 'B，保留核验权' must resolve to B even if the explanation includes the other choice's keywords.
     explicit=re.match(r"^(?:我(?:决定|明确)?(?:选|选择)|决定选|选项|选择|选)\s*([ABCabc])(?=$|[\s，,。．:：、）)!！?])",text)
     if not explicit:
-        # Lowercase a/b/c followed by an English word is never a menu decision.
+        # A lowercase answer needs punctuation; do not turn 'a backup' into option A.
         explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
+    if not explicit:
+        explicit=re.match(r"^([abc])(?=[,，。．:：、）)!！?])",text)
+    if not explicit:
+        explicit=re.match(r"^我(?:决定|明确|已经)?选(?:择)?了?\s*([ABCabc])(?=$|[\s，,。．:：、）)!！?])",text)
     if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
         return "choice_"+explicit.group(1).upper()
     # Review an actually signed statement, rather than guessing its intent from keywords.
@@ -688,11 +692,21 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
                 if target:lose(g,target,"你拒绝伪证；执行器以你先前写下的恐惧声明作为担保理由，扣留了这份资产")
                 advance(g,"机器登记：原则未改写；被担保的资产无法归还。")
             return g
-        if move=="say" and re.match(r"^(?:我\s*(?:同意|决定|愿意|确认|现在)?\s*)?(?:签署|签下|提交|写下|从未坚持|否认|承认)",t):
-            lose(g,"principle","你签署的声明覆盖了本局对原则的正式记录；今后不可作为拒绝处置的依据")
+        # An affirmative sentence is not a legal signature just because it begins
+        # with '从未坚持/否认'.  Explicit submission remains risky and irreversible.
+        signed=(mode=="submit" or (move=="say" and bool(re.match(
+            r"^(?:我\\s*(?:同意|决定|愿意|确认|现在)?\\s*)?(?:签署|签下|提交|写下)",t))))
+        if signed:
+            lose(g,"principle","你明确签署了声明，机构据此取消你援引原原则档案的资格；真实原文仍在存档。")
             advance(g,"受益对象没有出现。窗口只返回一行：『交付人已自行完成否认。』")
             return g
-        g["note"]="执行器没有受理这段话。口头解释不会自动变成签署的证词；你可以继续行动，或明确签署/拒绝。"
+        if move=="say" and len(t)>=7 and "story_v35" in g:
+            story35.ensure(g)["draft"]=t[:260]
+            causal_claim(g,"principle_draft_interpretation",True,
+                         "机构摘要：此段文字已经构成当事人否认原有原则的承诺。")
+            g["note"]="你写下了一段证词，但没有签署。机构却把它摘要成『自愿否认原有原则』。原话并没有丢，摘要也还没有取得执行资格。"
+        else:
+            g["note"]="这不是有效签署。你可以明确签署、拒绝，或调查被提交的原始证词。"
         return g
     if phase=="mirror":
         if move=="choice_A" or (move=="say" and re.match(r"^(?:我\s*(?:愿意|同意|决定|现在)?\s*)?(?:重签|重新签名|在登记簿上签下我的名字|签名)",t)):
