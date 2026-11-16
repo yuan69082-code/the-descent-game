@@ -92,7 +92,7 @@ def parse(g,action,mode=""):
     }
     if SCOPE_WORDS.search(msg) and not any(scope.values()):
         # "Temporary" without an end point is not a blank cheque.
-        if re.search(r"暂时|一段时间|几轮|到时候",msg):
+        if re.search(r"暂时.{0,8}(?:承受|承担|接受|忍受|监视|代价)|(?:承受|承担|接受|忍受).{0,10}(?:几轮|一段时间|到时候)",msg):
             return {"blocked":"你说只愿意暂时承受代价，但没有约定何时结束。"
                               "这份期限无法自动猜出来。要限定为这一次保全，还是先不成交？"}
         # Conditions that cannot be tested must stay undecided.
