@@ -531,6 +531,14 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             add_clue(g,"mirror_time","登记时间回执与先前查到的授权记录不一致；副本所称的『先登记』尚未得到原件证明。")
         return g
     if move.startswith("inspect_"):
+        if (gone(g,"truth") and not g["flags"]["evidence_copy"]
+                and not counterplays(g).get("witness_request")
+                and move in ("inspect_delivery","inspect_executor","inspect_custody")):
+            g["note"]=("你能读到这份机构文件，但已经没有独立核验来源的资格。"
+                       "它可以提供方向，不能直接成为可采信的原件。"
+                       "如果还有能作证的对象，可以要求独立见证；否则必须依据其他已保存的证据行动。")
+            mirror_tick(g)
+            return g
         if move=="inspect_authority" and gone(g,"truth") and not g["flags"]["evidence_copy"]:
             g["note"]="你找到编号相互矛盾的两份文书。但此前交出的真相核验权已经生效：你只能阅读文字，不能取得可采信的签名证据。"
             return g

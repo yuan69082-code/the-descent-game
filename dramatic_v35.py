@@ -251,8 +251,12 @@ def final_scene(g:dict)->dict:
     story=ensure(g)
     ending=g["ending"]
     first=story["first_words"] or (g["profile"].get("vow") or g["profile"].get("principle") or "")
+    if "memory" in g.get("lost",[]) and not g["flags"].get("evidence_copy"):
+        first="[旧信纸仍有编号，但你已经无法在本局调阅并核验它的原文]"
+    elif "truth" in g.get("lost",[]) and not g["flags"].get("evidence_copy"):
+        first=first[:180]+" [机构展示的版本，原件暂无法独立核验]"
     first=first[:220]
-    winlines="；".join(LABELS.get(x["key"],x["key"])+"仍被保住" for x in story["wins"][-2:])
+    winlines="；".join(LABELS.get(x["key"],x["key"])+"的扣押确实被阻断" for x in story["wins"][-2:])
     if not winlines:
         winlines="有些东西确实失去了；没有任何记录会假装你曾取得不存在的胜利"
     lines=[

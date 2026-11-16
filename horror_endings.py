@@ -13,36 +13,35 @@ HORROR_KINDS = (
 
 
 def pick_horror_ending(g:dict)->str:
-    """Pick the horror route from the player's losses, actions and evidence."""
-    lost=set(g.get("lost", []))
-    clues=set(g.get("clues", []))
-    cp=g.get("counterplays", {})
+    """Choose the most distinctive consequence the player actually created.
+
+    Loss of one administrative right must not override a more specific story.
+    No positive fate is selected here; HE requires a separate actual counterplay.
+    """
+    lost=set(g.get("lost",[]))
+    clues=set(g.get("clues",[]))
+    cp=g.get("counterplays",{})
+    observed=g.get("causality",{}).get("observed_focus") or g.get("fear_focus")
     if "future" in lost or len(lost)>=6:
         return "VOID"
-    if "self" in lost and cp.get("duplicate_claim"):
-        return "IMPOSTOR"
-    if cp.get("identity_shared") and cp.get("duplicate_claim"):
-        return "SHARED"
-    if "freedom" in lost:
-        return "SILENCED"
-    if "memory" in lost and "truth" in lost:
-        return "ORIGINLESS"
-    if "truth" in lost and g.get("fear_focus")=="truth":
-        return "FALSE_WITNESS"
-    if "principle" in lost:
-        return "BROKEN_OATH"
-    if cp.get("delivery_intercepted"):
-        return "RETURNED"
-    if "delivery" in clues and "relation" in lost:
-        return "UNDELIVERED"
-    if cp.get("ownership_claim"):
-        return "CUSTODIAN"
-    if cp.get("formal_objection"):
-        return "FILED"
-    if "relation" in lost:
-        return "LAST_CALL"
-    if "memory" in lost:
-        return "ERASED_MEMORY"
+    candidates=[]
+    def offer(kind,condition,score):
+        if condition:
+            candidates.append((score,kind))
+    offer("IMPOSTOR","self" in lost and cp.get("duplicate_claim"),110)
+    offer("SHARED",cp.get("identity_shared") and cp.get("duplicate_claim"),105)
+    offer("ORIGINLESS","memory" in lost and "truth" in lost,100)
+    offer("BROKEN_OATH","principle" in lost,89)
+    offer("FALSE_WITNESS","truth" in lost and observed=="truth",86)
+    offer("RETURNED",cp.get("delivery_intercepted"),85)
+    offer("UNDELIVERED","relation" in lost and "delivery" in clues,82)
+    offer("CUSTODIAN",cp.get("ownership_claim"),81)
+    offer("FILED",cp.get("formal_objection"),80)
+    offer("SILENCED","freedom" in lost,76)
+    offer("LAST_CALL","relation" in lost,68)
+    offer("ERASED_MEMORY","memory" in lost,66)
+    if candidates:
+        return max(candidates,key=lambda entry:entry[0])[1]
     return "CLEAN_EXIT"
 
 
@@ -79,7 +78,7 @@ def horror_text(g:dict, kind:str)->tuple[str,str]:
             "\n\n但寄往另一端的公开报告却说：『当事人反复抗拒，企图修改已经签下的意见。』"
             "\n\n你没有权限修改报告，也无法再使用原来的自主权提交反证。"
             "\n\n报告下面早就印着你从未交出过的三个字：『我同意。』"
-            "\n\n最可怕的不是机器替你做决定，而是它拥有把你真实的决定写成另一件事的权力。"
+            "\n\n正式报告被装订在上面；你的原始行动记录压在下面。没有人翻开第二页。"
         ),
         "ORIGINLESS": (
             "第零次回忆",
