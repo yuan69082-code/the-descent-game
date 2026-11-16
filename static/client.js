@@ -17,7 +17,7 @@
     if(!res.ok)throw Error(typeof out.detail==='string'?out.detail:'游戏操作失败 ('+res.status+')');
     return out;
   }
-  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':'SESSION / '+String(current?.stage||1).padStart(2,'0');}
+  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v37'?'V3.7 / '+String(current?.stage||1).padStart(2,'0'):'V3.6 / OLD SESSION';}
   function showIntro(){clear();signal.textContent='NO SIGNAL';
     const start=el('section','start');
     start.append(el('div','eyebrow','THE DESCENT · V3.7'));
@@ -38,7 +38,11 @@
   function appendBody(parent,text,cl){const x=el('div',cl,text);parent.append(x);return x;}
   function showGame(){clear();titlebar();if(current.phase==='ended'){showEnding();return;}
     const sc=current.scene;const game=el('div','game'),pane=el('section','pane'),header=el('div','panehead');header.append(el('b','',sc.chapter),el('span','',current.name+' / '+String(current.turn).padStart(2,'0')));pane.append(header);
-    const body=el('div','paneBody');body.append(el('h2','stageTitle',sc.title));appendBody(body,sc.body,'bodyText');
+    const body=el('div','paneBody');
+    if(current.edition!=='v37'){
+      body.append(el('div','lastNote','这是之前开始的旧版对局。想玩 V3.7，请通过右侧「清除存档」后重新开始；旧局不会自动更改规则。'));
+    }
+    body.append(el('h2','stageTitle',sc.title));appendBody(body,sc.body,'bodyText');
     if(sc.terms?.length){const terms=el('div','terms');sc.terms.forEach(t=>terms.append(el('div','term',t)));body.append(terms);}
     if(sc.footer)body.append(el('div','footerCode',sc.footer));
     if(current.note)body.append(el('div','lastNote',current.note));pane.append(body);

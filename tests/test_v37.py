@@ -167,7 +167,7 @@ class DynamicHorrorV37(unittest.TestCase):
         self.assertFalse(g["ending"]["remaining"])
         self.assertEqual(len(g["ending"]["lost"]),2)
         self.assertIn("第三幕",g["ending"]["text"])
-        self.assertIn("假设",g["ending"]["text"])
+        self.assertIn("第一幕留下的不是处置同意书",g["ending"]["text"])
         self.assertEqual(g["psych"]["choices"][0]["choice"],"C")
         self.assertEqual(g["psych"]["choices"][-1]["choice"],"B")
 
