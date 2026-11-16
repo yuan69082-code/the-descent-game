@@ -90,7 +90,14 @@
   function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag','CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
     const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);
     const row=el('div','rowActions');row.append(button('导出对局记录',exportGame),button('开始新的一局',async()=>{if(!confirm('新的一局将删除本局存档。确定吗？'))return;try{await resetSession();}catch(e){toast('删除失败：'+e.message);}},'btn subtle'),button('彻底删除本局',deleteGame,'btn danger'));box.append(row);
-    end.append(box);root.append(end);
+    end.append(box);
+    // An isolated afterword: visible only after completing a narrative ending, never when exiting.
+    if(current.ending.author_note){
+      const afterword=el('section','authorNote');
+      afterword.append(el('div','authorKicker','FROM THE AUTHOR / 作者留言'),el('p','authorText',current.ending.author_note));
+      end.append(afterword);
+    }
+    root.append(end);
   }
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制。请只把场景发给 AI，不要发送游戏后台源码。');}
     catch(e){const tmp=el('textarea');tmp.value=text;tmp.style.cssText='position:fixed;left:-2000px';document.body.append(tmp);tmp.select();try{document.execCommand('copy');toast('场景已复制');}catch(err){toast('复制失败，请手动选择场景文字。');}tmp.remove();}}

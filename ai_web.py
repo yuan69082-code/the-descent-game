@@ -50,6 +50,8 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
         lines.extend(["本局结束。",f"结局：{end['kind']} · {end['title']}",end["text"],
                       "已失去："+("、".join(end["lost"]) or "无"),
                       "仍保留："+("、".join(end["remaining"]) or "无")])
+        if end.get("author_note"):
+            lines.extend(["", "──────── 作者留言 ────────",end["author_note"]])
         return "\n".join(lines)
     sc=v["scene"]
     lines.extend([f"【{sc['chapter']}】{sc['title']}",sc["body"]])

@@ -15,6 +15,10 @@ VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真�
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
 MAX_ACTIONS = 30
 
+# The author's note appears only after a completed narrative ending.
+# It is separate from horror text and never alters game rules or scoring.
+AUTHOR_NOTE = "游戏已经结束。我还想问你：\n\n这一路留给你的，只有恐惧吗？还是在某个瞬间，你忽然发现——原来自己这么不愿失去的，是这个。\n\n如果有，你想对珍视的人说些什么？想为那段记忆、那条原则，或你想守护的自己，做些什么？\n\n答案不必交给游戏。想说的话，去说吧；能做的事，就从现在开始。\n\n——《恐惧深潜》作者"
+
 # Questionnaire answers affect which asset is at risk, not just scene narration.
 FEAR_HINTS = (
     (r"记忆|遗忘|忘记|想不起|回忆|memory|forget", "memory"),
@@ -134,7 +138,8 @@ def ending(g:dict, kind:str|None=None, how:str=""):
     g["phase"]="ended"
     g["ending"]={"kind":kind,"title":title,"text":text,
                  "lost":[VALUES[x] for x in g["lost"]],
-                 "remaining":[VALUES[x] for x in VALUES if x not in g["lost"]]}
+                 "remaining":[VALUES[x] for x in VALUES if x not in g["lost"]],
+                 "author_note": AUTHOR_NOTE if kind != "EXIT" else ""}
     record(g,"本局结束："+kind,"ending")
 
 
