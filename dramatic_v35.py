@@ -168,12 +168,23 @@ def scene_overlay(g:dict)->str:
 
     if stage==1 and first:
         if "relation" in saved:
-            note.append("第一幕被退回的信仍在桌上。读取槽的灯确实没亮；你保住了原件。")
+            cp=g.get("counterplays",{})
+            if g["flags"].get("slot_blocked"):
+                note.append("你封住的读取槽仍旧暗着。纸张没有被读取，这次你确实挡住了未经核对的归档。")
+            elif cp.get("delivery_intercepted"):
+                note.append("被截留的 09-F 还在保管槽中，实际没有送给那个收件人。")
+            elif cp.get("verified_false_delivery"):
+                note.append("你取得的原始回执与『已送达』声明抵触。机构不得再用这份假送达自动撤销关系。")
+            else:
+                note.append("登记官暂时不能执行这项扣押；你留下的反证仍在受理中。")
         elif "relation" in pending and "delivery" not in g["clues"]:
             note.append("听筒里传来一句短促的「看到了」。你想再听一遍，对方已经挂断。"
                         "柜台放下一枚写着『签收』的印章，却没有附上那个人的声音记录。")
         elif "relation" in pending:
             note.append("你手中的邮寄单有编号，没有收件地址；柜台仍坚持信已交给了正确的人。")
+        if "memory" not in lost:
+            note.append("那张纸上仍是你亲手写下的一行字：『"+first[:180]+"』。"
+                        "在这里，被存下来的文字与真正交到谁手里，是两件不同的事。")
 
     if stage>=2:
         if "relation" in saved:
