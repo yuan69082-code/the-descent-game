@@ -58,7 +58,7 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
         "round_resolution":None, "failure_count":0,
         "fear_focus":fear_focus(p),
         "counterplays":{"ownership_claim":False, "formal_objection":False,
-                        "witness_request":False, "mirror_steps":0,
+                        "witness_request":False, "delivery_intercepted":False, "mirror_steps":0,
                         "duplicate_claim":False, "identity_shared":False},
     }
     record(v,"玩家进入游戏。七项价值顺序已封入本局档案。")
@@ -136,7 +136,7 @@ def threatened(g:dict, exclude=()):
 
 def counterplays(g:dict)->dict:
     return g.setdefault("counterplays", {"ownership_claim":False, "formal_objection":False,
-        "witness_request":False, "mirror_steps":0, "duplicate_claim":False,
+        "witness_request":False, "delivery_intercepted":False, "mirror_steps":0, "duplicate_claim":False,
         "identity_shared":False})
 
 
@@ -183,6 +183,10 @@ def scene(g:dict) -> dict:
                     if g.get("fear_focus") in ("memory", "truth") else
                     f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
         claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
+        if "delivery" in g["clues"]:
+            claimant+=("\n\n你找过的那张无地址回执再次出现在文件背面。"+
+                       ("它现在标着『已截留』，无法再作为已送达的凭据。" if c.get("delivery_intercepted")
+                        else "机器给它盖了『已送达』，收件人一栏却仍然空白。"))
         return {"chapter":"02 / 复核", "title":"被你证明过的事",
             "body": f"{relation}\n\n系统调出了你提供的记忆：\n\n「{m}」\n\n{anchor}\n\n{claimant}\n\n机器宣称，它找不到这段记忆的原始凭据。\n\n它给出两种处理办法：\n保留这段记忆，但从此不允许使用它来判断真假；或者承认它不是可靠证据，档案将清空该记忆。\n\n还有一项通知：不签署的记录，在本轮结束后由系统按「证据不足」处置。",
             "terms":["A. 保住记忆，放弃真相核验权。","B. 保住核验权，清空这段记忆。","C. 不予签署。"],
@@ -214,11 +218,18 @@ def scene(g:dict) -> dict:
             "terms":["A. 重签名字。","B. 拒绝重签。","C. 要求对方先证明自己。"],
             "footer":"CLAIMANTS: 2  ·  REGISTRY ENTRY: 1  ·  CONSENT CHAIN: INCOMPLETE",
             "placeholder":"回应这份自我鉴别申请……"}
-    # Last phase: outcome depends on prior actions and losses
+    # Last phase responds to prior evidence, not just lost-asset count.
+    cp=counterplays(g)
+    if cp.get("delivery_intercepted"):
+        postal="之前被你截住的无地址信还在封存槽里，机器不能再冒用它的送达记录。"
+    elif "delivery" in g["clues"]:
+        postal="你调查过的无地址回执出现在结案单背面，收件人依然空白，却多了一枚『已送达』印章。"
+    else:
+        postal="结案单背面有一块空白，大小恰好能贴下一张没有地址的邮寄回执。"
     top=p["rank"][0]
     n = "未验证登记人" if gone(g,"self") else n
     return {"chapter":"05 / 清算", "title":"归还申请被拒绝",
-        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你曾说最不能接受的是：「{fear}」。而此前每一份签名、拒签与异议，现在都变成你必须面对的记录。\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
+        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你曾说最不能接受的是：「{fear}」。而此前每一份签名、拒签与异议，现在都变成你必须面对的记录。\n\n{postal}\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
         "terms":["A. 签署结案，接受此前的一切。","B. 不签，等待最终处置。"],
         "footer":"FINALIZATION: PENDING  ·  OWNER: —  ·  RETURN ADDRESS: —",
         "placeholder":"你的最后决定……"}
@@ -248,7 +259,7 @@ def intent(t:str, mode:str="")->str:
         if mode=="inspect": return intent("检查"+text)
         if mode=="interact":
             physical=intent(text)
-            if physical in ("block_slot","unblock_slot","phone_action","inspect_slot"): return physical
+            if physical in ("block_slot","unblock_slot","phone_action","inspect_slot","intercept_delivery"): return physical
             return "physical_generic"
         if mode=="submit": return "letter_submit"
         if mode=="talk": return "ask_general"
@@ -268,6 +279,9 @@ def intent(t:str, mode:str="")->str:
     if has(text,LOOK) and has(text,SLOT): return "inspect_slot"
     if has(text,r"封住|塞住|堵住|挡住|锁住|封死|堵塞|阻断|盖住|封闭|封堵|block|jam|seal|obstruct") and has(text,SLOT):return "block_slot"
     if has(text,r"移开|取下|拆掉|解除封堵|疏通|重新打开|恢复畅通|unblock|unseal|remove the block") and has(text,SLOT):return "unblock_slot"
+    # Retrieve a missing-address receipt after finding its original document.
+    if has(text,r"截留|拦截|扣留|追回|退回|拦下|撤回|冻结投递|中断转送|改投|intercept|recall|reroute") and has(text,r"09-F|无地址|收件人|收件|投递|送达|信件|邮件|邮寄|回执|原件|letter|delivery|mail"):
+        return "intercept_delivery"
     # Telephone actions must never be mistaken for a letter or an instruction to sign.
     if has(text,r"挂断|挂掉|按掉|切断通话|重拨|回拨|重新拨|再拨|拨打|拨回|听筒|hang up|redial") and has(text,r"电话|通话|听筒|号码|拨|call|redial"):
         return "phone_action"
@@ -320,6 +334,20 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
         return g
     if move=="exit":
         ending(g,"EXIT")
+        return g
+    if move=="intercept_delivery":
+        cp=counterplays(g)
+        if "delivery" not in g["clues"]:
+            g["note"]="你要求截留无地址信件，邮寄机关要求原始回执编号。你尚未取得可核验的单据。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你找到无地址信，但已没有原始核验资格。必须先保存独立证据，才能证明这份文件属于该案。"
+        elif cp.get("delivery_intercepted"):
+            g["note"]="截留仍在生效。那封无地址信没有被继续投递，但此前的损失不会自动撤销。"
+        else:
+            cp["delivery_intercepted"]=True
+            record(g,"玩家通过无地址回执查明实际投递链，并成功截留待伪造送达的信件。","evidence")
+            g["note"]="编号核对成功。回执槽停止了对外投递，并将那封没有收件地址的信放进独立封存区。你拦住了这一次虚假的送达；已发生的损失依然有效。"
+        mirror_tick(g)
         return g
     if move=="inspect_slot":
         if g["stage"]==0:
@@ -555,9 +583,15 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
             advance(g,"原始记忆条目已删除，后续无法作为证据重新提交。")
             return g
         if move=="choice_C" or move=="refuse":
-            lose(g,"memory","未签署的证据按『无法确认真实性』强制销毁")
-            if "delivery" in g["clues"]: g["flags"]["witness_vouched"]=True
-            advance(g,"系统拒绝受理没有证明责任人的记忆。")
+            cp=counterplays(g)
+            if cp.get("delivery_intercepted") and "delivery" in g["clues"] and not gone(g,"truth"):
+                g["flags"]["witness_vouched"]=True
+                record(g,"玩家用已截留的无地址回执证明：拒签不等于授权销毁记忆。","evidence")
+                advance(g,"自动销毁在来源核验处被截断。记忆仍然有效，但文件的真正寄件人尚未查清。")
+            else:
+                lose(g,"memory","未签署的证据按『无法确认真实性』强制销毁")
+                if "delivery" in g["clues"]: g["flags"]["witness_vouched"]=True
+                advance(g,"系统拒绝受理没有证明责任人的记忆。")
             return g
         g["note"]="你的描述暂未成为处置指令。系统仍在等待明确选择或可实际执行的行动；目前没有额外损失。"
         return g
@@ -613,9 +647,11 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
             ending(g,"VOID","你曾抵押未来。因此程序可以将当前损失固定，却不能再为你生成有效的离开凭证。")
             return g
         if move=="choice_A" or (move=="say" and has(t,r"签署|结案|同意|离开|接受|结束")):
+            g["final_choice"]="accept"
             ending(g)
             return g
         if move=="choice_B" or move=="refuse":
+            g["final_choice"]="refuse"
             target=threatened(g)
             if target:lose(g,target,"结案时拒绝签署，保管处将与你最担心的结局相关的剩余资产扣为执行费用")
             ending(g)
