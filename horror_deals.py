@@ -53,7 +53,7 @@ def parse(g,action,mode=""):
         not re.search(r"我(?:明确)?(?:接受|同意|选择|选|决定)|我愿意(?:承担|接受)",msg)):
         return None
     if CONDITION.search(msg):
-        return {"blocked":"这笔交易不接受附加条件。你可以接受眼前的完整代价，也可以拒绝；任何限制都不会成为免责条款。交易尚未成立。"}
+        return {"blocked":"你试图在价码上加一道限制。对面的人把纸推回去：「没有这种版本。完整接受，或者拒绝。」交易尚未成立。"}
     costs=g["psych"].get("negative",[])
     requested_kind,requested_name=_user_type(msg)
     chosen=explicit_letter.group(1).upper() if explicit_letter else None

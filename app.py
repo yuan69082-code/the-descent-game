@@ -173,13 +173,15 @@ def export(x_session:str=Header(default="")):
         out["experience"]={"interview":story.get("answers",[]),"hypotheticals":story.get("probes",[]),
                            "real_choices":story.get("choices",[]),"consequences":story.get("consequences",[]),
                            "proof":story.get("proof",[]),"cost":story.get("cost"),
+                           "relationships":story.get("relationships",[]),"corrections":story.get("corrections",[]),
                            "first_words":story.get("first_words",""),"final_action":story.get("last_action")}
         if g.get("edition")=="v38":
             out["narrative"]={"mode":g.get("director",{}).get("mode","rules"),
                               "scene":g.get("director",{}).get("scene"),
                               "ending_text":g.get("director",{}).get("ending_text")}
         elif g.get("edition")=="v39":
-            out["narrative"]={"plan":story.get("plan"),"hooks":story.get("hooks",[]),
+            out["narrative"]={"model_mode":g.get("model_mode","free"),
+                              "plan":story.get("plan"),"hooks":story.get("hooks",[]),
                               "question_log":story.get("question_log",[]),
                               "literal_actions":story.get("literal_actions",[])}
     if "story_v35" in g:

@@ -218,6 +218,10 @@ def interpret(g,raw,mode=""):
     text=raw.strip()
     if edition=="v39" and re.search(r"更正|纠正|我刚才说错|前面那句不对|不是.{1,24}(?:而是|其实是|是)",text):
         return raw,mode
+    if edition=="v39":
+        from horror_deals import is_revocation_request
+        if is_revocation_request(text):
+            return raw,mode
     if g.get("edition")=="v39" and g["stage"]==2:
         from horror_deals import parse as read_offer
         if read_offer(g,text,mode) is not None:

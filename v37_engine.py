@@ -107,8 +107,18 @@ def _record_correction(g:dict,text:str)->bool:
         for asset in p.get("assets",{}).values():
             if old and old in asset.get("label",""):
                 asset["label"]=asset["label"].replace(old,new)
+        for relationship in p.get("relationships",[]):
+            for key in ("subject","related_item"):
+                if old and old in relationship.get(key,""):
+                    relationship[key]=relationship[key].replace(old,new)
         for key in ("answers","probes"):
             p[key]=[value.replace(old,new) if old else value for value in p.get(key,[])]
+    if re.search(r"同一个人|同一人|不是两个人|同一个对象",text):
+        p.setdefault("relationships",[]).append({"relation":"same_subject_correction","text":text[:180]})
+        if p.get("a") and p.get("b") and _same_subject(p["a"],p["b"]):
+            p["b"]="与「"+p["a"]+"」有关的独立记录"
+            if p.get("assets",{}).get("b"):
+                p["assets"]["b"]["label"]=p["b"]
     p.setdefault("corrections",[]).append(item)
     p["corrections"]=p["corrections"][-12:]
     _log(g,"玩家更正了一项事实，后续记录将采用新说法。","correction")
@@ -202,6 +212,7 @@ def _setup(g:dict):
     first=_label(a[6] or a[3],"本局的自主判断权")
     second=_label(a[3],"本局的独立核验权")
     src=3
+    p.setdefault("relationships",[])
     if _same_subject(first,second):
         related=_related_object(a[3],first) or _related_object(a[6],first)
         if related:
