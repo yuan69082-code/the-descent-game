@@ -139,7 +139,7 @@ def register_ai_routes(app, db, token_key, get_session):
             with db() as conn:
                 g,version=get_session(conn,sid)
             if v!=version:
-                return document("旧行动没有再次执行。\n\n"+view(g,sid,version))
+                return document("此行动地址已经过期，旧行动没有再次执行。\n\n"+view(g,sid,version))
             actual,actual_mode=text,mode
             if g.get("edition")=="v38":
                 from horror_director import interpret,render

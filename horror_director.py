@@ -200,6 +200,10 @@ def interpret(g,raw,mode=""):
     kind=response.get("kind")
     if kind=="choose":
         choice=response.get("choice")
+        if not re.search(r"我选|选择|决定|宁愿|愿意|同意|接受|承担|承受|放弃|舍弃|交出|牺牲|正式",text):
+            return raw,mode
+        if choice in ("C","D") and not re.search(r"愿意|同意|接受|承担|承受|代价",text):
+            return raw,mode
         if isinstance(choice,str) and choice in ("A","B","C","D","E") and any(
             x.startswith(choice+".") for x in canonical.get("terms",[])):
             return choice,"choose"

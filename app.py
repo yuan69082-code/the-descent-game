@@ -149,7 +149,8 @@ def export(x_session:str=Header(default="")):
                            "first_words":story.get("first_words",""),"final_action":story.get("last_action")}
         if g.get("edition")=="v38":
             out["narrative"]={"mode":g.get("director",{}).get("mode","rules"),
-                              "scene":g.get("director",{}).get("scene")}
+                              "scene":g.get("director",{}).get("scene"),
+                              "ending_text":g.get("director",{}).get("ending_text")}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),
