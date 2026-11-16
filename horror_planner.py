@@ -138,23 +138,22 @@ def create(g):
           {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],420)
     stage=g["stage"]
     current=default.copy()
+    applied=False
     if isinstance(proposal,dict):
         if proposal.get("mode") in MODES.get(stage,()):
-            current["mode"]=proposal["mode"]
+            current["mode"]=proposal["mode"];applied=True
         if proposal.get("focus") in FOCI:
-            current["focus"]=proposal["focus"]
+            current["focus"]=proposal["focus"];applied=True
         valid={x["id"] for x in _eligible(g) if x["origin"]<stage}
         candidate=proposal.get("hook_id")
         if candidate=="":
-            current["hook_id"]=""
+            current["hook_id"]="";applied=True
         elif isinstance(candidate,str) and candidate in valid:
-            current["hook_id"]=candidate
+            current["hook_id"]=candidate;applied=True
         if stage<2 and _question_ok(g,proposal.get("question")):
-            current["question"]=proposal["question"].strip()
-    else:
-        proposal=None
+            current["question"]=proposal["question"].strip();applied=True
     if stage>=2:current["question"]=""
-    p["plan"]=dict(current,turn=g["turn"],stage=stage,from_model=bool(proposal))
+    p["plan"]=dict(current,turn=g["turn"],stage=stage,from_model=applied)
     if current["hook_id"]:
         for h in p.get("hooks",[]):
             if h["id"]==current["hook_id"] and stage not in h.get("seen_at",[]):
