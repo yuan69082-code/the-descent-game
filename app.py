@@ -84,7 +84,7 @@ def index():
 
 @app.get("/healthz")
 def health():
-    return {"ok":True,"name":"THE DESCENT","version":"3.5"}
+    return {"ok":True,"name":"THE DESCENT","version":"3.6"}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):

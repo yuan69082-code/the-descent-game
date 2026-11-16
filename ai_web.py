@@ -40,7 +40,7 @@ def document(text: str, status: int = 200):
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
-    lines=["THE DESCENT / AI 纯文字游玩通道",
+    lines=["THE DESCENT V3.6 / AI 纯文字游玩通道",
            "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
