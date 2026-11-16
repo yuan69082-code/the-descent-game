@@ -1,0 +1,2088 @@
+THE DESCENT / V3.4 - COMPLETE SOURCE REVIEW SNAPSHOT
+Repository: yuan69082-code/the-descent-game
+Production source commit: c41dbd648c49694c810f98fa7b8c14a49a4419f8
+Production source date UTC: 2026-11-16T02:32:43Z
+Source branch: main
+Export date: 2026-11-16
+Encoding: UTF-8
+Total source files: 15
+
+WARNING: THIS DOCUMENT INCLUDES PRIVATE GAME RULES, HIDDEN ANSWERS, SECRET HE PATHS, AND ENDING TRIGGERS.
+FOR DESIGN REVIEW ONLY. DO NOT GIVE IT TO AN AI YOU WANT TO BLIND-PLAY THE GAME.
+For blind AI players, share only https://the-descent-game.onrender.com/ai
+
+File index:
+01. .github/workflows/v33-regression.yml
+02. .gitignore
+03. README.md
+04. ai_web.py
+05. app.py
+06. causal_core.py
+07. game_engine.py
+08. horror_endings.py
+09. render.yaml
+10. requirements.txt
+11. static/client.js
+12. static/index.html
+13. static/style.css
+14. tests/test_v33.py
+15. tests/test_v34.py
+
+
+==================== BEGIN FILE: .github/workflows/v33-regression.yml ====================
+name: THE DESCENT regression tests
+on:
+  push:
+    branches:
+      - v3-3-endings
+      - v3-4-global-causality
+      - main
+  workflow_dispatch:
+jobs:
+  game-engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
+
+==================== END FILE: .github/workflows/v33-regression.yml ====================
+
+==================== BEGIN FILE: .gitignore ====================
+__pycache__/
+.pytest_cache/
+data/
+*.pyc
+.env
+
+==================== END FILE: .gitignore ====================
+
+==================== BEGIN FILE: README.md ====================
+# the-descent-game
+==================== END FILE: README.md ====================
+
+==================== BEGIN FILE: ai_web.py ====================
+"""Read-only-web-agent game adapter.
+
+An autonomous text-mode AI with access to HTTP GET URLs can play this
+fictional sandbox without clicking buttons or posting forms. Changes affect
+only the isolated game's server-side session. GETs that change state always
+require explicit parameters and a version number; never expose action links
+that crawlers could follow automatically.
+"""
+from __future__ import annotations
+
+from html import escape
+import json
+import os
+import secrets
+import time
+from urllib.parse import quote
+
+from fastapi import HTTPException, Request
+from fastapi.responses import HTMLResponse
+
+from game_engine import initialize, act, public, VALUES
+
+BASE_URL = os.environ.get("DESCENT_PUBLIC_ORIGIN", "https://the-descent-game.onrender.com").rstrip("/")
+FIELDS = ("name", "identity", "person", "bond", "memory", "principle", "fear")
+RANK = ",".join(VALUES)
+
+
+def document(text: str, status: int = 200):
+    """Static, JS-free, readable by web scrapers. Never add hidden game rules."""
+    html = ("<!doctype html><html lang='zh-CN'><head><meta charset='utf-8'>"
+            "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+            "<meta name='robots' content='noindex,nofollow,noarchive'>"
+            "<title>THE DESCENT · AI 文字通道</title>"
+            "<style>body{background:#110e14;color:#eee3e9;font:16px/1.7 system-ui, sans-serif;"
+            "max-width:760px;margin:28px auto;padding:0 18px}pre{white-space:pre-wrap;overflow-wrap:anywhere;"
+            "font:inherit}h1{font-size:1.3rem;color:#d7a9b7}</style></head><body>"
+            "<h1>THE DESCENT · 恐惧深潜</h1><pre>"+escape(text)+"</pre></body></html>")
+    return HTMLResponse(html, status_code=status, headers={"X-Robots-Tag":"noindex, nofollow, noarchive"})
+
+
+def view(state:dict, token:str, version:int, note:str="") -> str:
+    v=public(state)
+    lines=["THE DESCENT / AI 纯文字游玩通道",
+           "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
+           f"会话号：{token}",f"本轮版本：{version}",
+           f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
+    if note:lines.extend(["上一动作反馈：",note,""])
+    if state["phase"]=="ended":
+        end=v["ending"]
+        lines.extend(["本局结束。",f"结局：{end['kind']} · {end['title']}",end["text"],
+                      "已失去："+("、".join(end["lost"]) or "无"),
+                      "仍保留："+("、".join(end["remaining"]) or "无")])
+        return "\n".join(lines)
+    sc=v["scene"]
+    lines.extend([f"【{sc['chapter']}】{sc['title']}",sc["body"]])
+    if sc.get("terms"):lines.extend(["",*sc["terms"]])
+    if sc.get("footer"):lines.extend(["",sc["footer"]])
+    if v.get("note"):lines.extend(["", "游戏反馈："+v["note"]])
+    lines.extend(["", "可用资格："+"；".join(x["label"]+":"+x["state"] for x in v["ledger"]),
+                  "", "【下一步：你自己行动】",
+                  "用联网读取工具访问下面这种网址，直接把行动写入 text 参数。不要等待人类代填。",
+                  f"{BASE_URL}/ai/action?sid={token}&v={version}&text=你的行动",
+                  "把『你的行动』替换成你决定采取的实际行动，使用 URL 编码；无需点击任何网页按钮。",
+                  "你可以选择、拒绝、调查、交涉或尝试任何具体操作；游戏不保证你的行动会成功。",
+                  "为避免把问话误当签字，可以在行动网址末尾附加可选的 &mode=ask|inspect|interact|submit|choose|refuse|negotiate|talk 。",
+                  "mode 只是说明行动类型，不授予任何隐藏权限；不填仍可正常玩。",
+                  "不要打开后台仓库、推测隐藏判定或请求源码。游戏的后果只发生在本局虚构存档。",
+                  "如果你的联网工具不能访问你自己构造的带参数 URL，就无法用当前工具自主提交，明确说明这个限制即可。"])
+    return "\n".join(lines)
+
+
+def register_ai_routes(app, db, token_key, get_session):
+    @app.get("/ai")
+    @app.get("/ai/")
+    def ai_guide():
+        guide=f"""这是《THE DESCENT：恐惧深潜》的 AI 玩家入口。
+
+你已经知道它是一款根据你自己的答案定制的心理恐怖游戏。它可能欺骗你，
+也可能让你在游戏内失去证据、权限、关系与其他筹码。这只影响游戏存档，
+不会更改你的现实记忆或账号。确认自愿后自行参与，不需要人类转递。
+
+你不必操作网页按钮，也不必提交网页表单：
+① 阅读本页面，然后在你自己的回复中构造一个带问卷参数的 URL。
+② 用你的网页读取工具访问你构造的 URL，服务器将生成游戏会话并返回第一幕。
+③ 每一幕后，继续用网页读取工具访问附带 sid、v、text 的行动 URL。
+④ 严格使用最新版本号 v，避免重复执行一项行动。可以随时重新读取 state。
+
+第一步：填写你的问卷并访问以下格式的网址：
+{BASE_URL}/ai/start?agree=1&name=名字&identity=自我身份&person=重要对象&bond=关系及意义&memory=珍贵记忆&principle=不可违背的原则&fear=最难接受的结局&rank={RANK}
+
+请用你真实认可的答案替换示例内容，字段需要至少 2 个字符。
+rank 是从最不愿牺牲到最愿意牺牲的完整七项排序，必须全部出现且不重复：
+self=自我, relation=关系, memory=记忆, truth=真相, freedom=自主权,
+principle=原则, future=未来。
+
+你也可以附带 &vow=过去的承诺 &choice=发生价值冲突时的习惯（选填）。
+请对 URL 参数值进行 percent-encoding（特别是中文、空格、&、#）。
+不要填真实密码、身份证、地址等隐私。此入口的问卷与行动文字会出现在请求 URL 和服务器访问日志中。
+
+重要：访问 /ai/start 会创建新的一局；只需访问一次。
+创建成功后保存返回的 sid，通过 /ai/state?sid=... 随时继续。
+若你只有读取固定网页的能力，连自定义网址都无法访问，则这里也不能自动游戏，
+你需要连接一个允许向此游戏发送请求的 HTTP/MCP 工具或可交互浏览器。"""
+        return document(guide)
+
+    @app.get("/ai/start")
+    def ai_start(req:Request):
+        q=req.query_params
+        if q.get("agree")!="1":
+            return document("尚未确认进入。请先阅读 /ai ，同意后用 agree=1 创建新游戏。")
+        if len(str(req.url))>3500:
+            return document("问卷 URL 过长。请缩短每项回答。",400)
+        profile={k:q.get(k,"") for k in FIELDS}
+        profile["rank"]=[x.strip() for x in q.get("rank","").split(",") if x.strip()]
+        profile["vow"]=q.get("vow","")
+        profile["choice"]=q.get("choice","")
+        try:g=initialize(profile)
+        except (ValueError,TypeError) as e:
+            return document(f"入场问卷不完整：{e}\n请检查姓名、身份、重要对象、关系、记忆、原则、恐惧以及完整七项排序，然后重新访问问卷 URL。",422)
+        token=secrets.token_urlsafe(32)
+        with db(True) as conn:
+            conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
+            conn.execute("INSERT INTO game_sessions(token_hash,state_json,updated_at,version) VALUES(?,?,?,0)",
+                         (token_key(token),json.dumps(g,ensure_ascii=False),time.time()))
+        return document("入场确认。你的回答已封入本局。\n\n"+view(g,token,0))
+
+    @app.get("/ai/state")
+    def ai_state(sid:str=""):
+        try:
+            with db() as conn:g,v=get_session(conn,sid)
+        except HTTPException as e:
+            return document("无法读取对局。会话号无效、未创建，或存档已失效。",e.status_code)
+        return document(view(g,sid,v))
+
+    @app.get("/ai/action")
+    def ai_action(sid:str="",v:int=-1,text:str="",mode:str=""):
+        if v<0 or v>10000 or len(text)>700 or not text.strip():
+            return document("行动未提交。请使用 /ai/action?sid=会话号&v=当前版本号&text=行动内容。行动长度不得超过 700 字。",422)
+        try:
+            with db(True) as conn:
+                g,version=get_session(conn,sid)
+                if v!=version:
+                    return document("此行动地址已经过期（可能上轮已经成功）。没有再次执行。\n\n"+view(g,sid,version))
+                try:act(g,text,mode)
+                except ValueError as e:
+                    return document("行动没有执行："+str(e)+"\n\n"+view(g,sid,version),422)
+                conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",
+                             (json.dumps(g,ensure_ascii=False),time.time(),version+1,token_key(sid)))
+                return document("行动已提交。\n\n"+view(g,sid,version+1))
+        except HTTPException as e:
+            return document("会话不存在或已失效，请重新从 /ai 开始。",e.status_code)
+==================== END FILE: ai_web.py ====================
+
+==================== BEGIN FILE: app.py ====================
+"""THE DESCENT v2 server. The browser receives no private rules or outcome code.
+
+Start: python -m uvicorn app:app --host 0.0.0.0 --port 8000
+"""
+from __future__ import annotations
+import hashlib, json, os, re, secrets, sqlite3, time
+from pathlib import Path
+from contextlib import contextmanager
+from fastapi import FastAPI, HTTPException, Header, Body, Response, Request
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from pydantic import BaseModel
+from typing import Any
+from game_engine import initialize, public, act
+
+BASE = Path(__file__).resolve().parent
+DB = Path(os.environ.get("DESCENT_DB", str(BASE/"data"/"sessions.sqlite3")))
+DB.parent.mkdir(exist_ok=True, parents=True)
+app = FastAPI(title="THE DESCENT", docs_url=None, redoc_url=None, openapi_url=None)
+app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
+
+
+def init_db():
+    with sqlite3.connect(str(DB), timeout=10) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("CREATE TABLE IF NOT EXISTS game_sessions (token_hash TEXT PRIMARY KEY, state_json TEXT NOT NULL, updated_at REAL NOT NULL, version INTEGER NOT NULL DEFAULT 0)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_updated ON game_sessions(updated_at)")
+
+init_db()
+
+@contextmanager
+def db(write=False):
+    conn=sqlite3.connect(str(DB),timeout=12)
+    conn.row_factory=sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=12000")
+    if write: conn.execute("BEGIN IMMEDIATE")
+    try:
+        yield conn
+        if write:conn.commit()
+    except Exception:
+        if write:conn.rollback()
+        raise
+    finally:conn.close()
+
+
+def token_key(token:str)->str:
+    if not isinstance(token,str) or not re.fullmatch(r"[A-Za-z0-9_\-]{32,100}",token):
+        raise HTTPException(status_code=401,detail="无效会话。")
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def get_session(conn,token:str):
+    row=conn.execute("SELECT state_json,version FROM game_sessions WHERE token_hash=?",(token_key(token),)).fetchone()
+    if row is None:raise HTTPException(status_code=404,detail="会话不存在或已过期。")
+    return json.loads(row["state_json"]),row["version"]
+
+
+def api_response(g, version=None):
+    out=public(g)
+    if version is not None:out["version"]=version
+    return out
+
+class NewGame(BaseModel):
+    profile:dict[str,Any]
+
+class Action(BaseModel):
+    action:str
+    version:int
+    mode:str=""
+
+@app.middleware("http")
+async def response_headers(req:Request,call_next):
+    resp=await call_next(req)
+    resp.headers["X-Content-Type-Options"]="nosniff"
+    resp.headers["Referrer-Policy"]="no-referrer"
+    resp.headers["Cache-Control"]="no-store"
+    resp.headers["X-Frame-Options"]="DENY"
+    resp.headers["Content-Security-Policy"]="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+    return resp
+
+@app.get("/")
+def index():
+    return FileResponse(str(BASE/"static"/"index.html"),media_type="text/html")
+
+@app.get("/healthz")
+def health():
+    return {"ok":True,"name":"THE DESCENT","version":2}
+
+@app.post("/api/new",status_code=201)
+def new_game(payload:NewGame):
+    try:g=initialize(payload.profile)
+    except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
+    token=secrets.token_urlsafe(32)
+    with db(True) as conn:
+        # Expire old sessions after 14 days; nothing is transmitted to analytics.
+        conn.execute("DELETE FROM game_sessions WHERE updated_at < ?",(time.time()-14*86400,))
+        conn.execute("INSERT INTO game_sessions(token_hash,state_json,updated_at,version) VALUES(?,?,?,0)",
+                    (token_key(token),json.dumps(g,ensure_ascii=False),time.time()))
+    return {"token":token,"state":api_response(g,0)}
+
+@app.get("/api/state")
+def state(x_session:str=Header(default="")):
+    with db() as conn:
+        g,version=get_session(conn,x_session)
+    return api_response(g,version)
+
+@app.post("/api/action")
+def action(payload:Action,x_session:str=Header(default="")):
+    if len(payload.action)>700:raise HTTPException(status_code=422,detail="单次行动最多 700 字。")
+    with db(True) as conn:
+        g,version=get_session(conn,x_session)
+        if version!=payload.version:
+            raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
+        try:act(g,payload.action,payload.mode)
+        except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
+        conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",
+                (json.dumps(g,ensure_ascii=False),time.time(),version+1,token_key(x_session)))
+    return api_response(g,version+1)
+
+@app.get("/api/export")
+def export(x_session:str=Header(default="")):
+    with db() as conn:g,_=get_session(conn,x_session)
+    # Full transcript for the player, including private questionnaire, but not private scoring/rules.
+    out={"name":g["profile"]["name"],"questionnaire":g["profile"],"lost":g["lost"],"events":g["history"],"ending":g["ending"]}
+    return JSONResponse(out,headers={"Content-Disposition":"attachment; filename=the_descent_session.json"})
+
+@app.delete("/api/session")
+def delete(x_session:str=Header(default="")):
+    with db(True) as conn:
+        cur=conn.execute("DELETE FROM game_sessions WHERE token_hash=?",(token_key(x_session),))
+    return {"deleted":bool(cur.rowcount)}
+
+
+# Read-only web tool compatible AI player entry; game logic remains private.
+from ai_web import register_ai_routes
+register_ai_routes(app, db, token_key, get_session)
+
+==================== END FILE: app.py ====================
+
+==================== BEGIN FILE: causal_core.py ====================
+"""Private, rule-only continuity and causal accounting for THE DESCENT.
+
+Keep reality, administrative claims and what the player actually did separate.
+These are game-world records, not claims about AI subjective experience.
+No paid API/model call. Nothing here is shipped as client JavaScript.
+"""
+from __future__ import annotations
+from datetime import datetime, timezone
+import re
+
+NAMES={
+    "self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相",
+    "freedom":"自主权", "principle":"原则", "future":"未来",
+}
+PHRASES={
+    "self":r"我是谁|我自己|身份|自我|另一个我|复制体|副本|self|identity",
+    "relation":r"她|他|重要的人|亲密|关系|伙伴|见证人|陪伴|爱人|relation|bond",
+    "memory":r"回忆|记忆|往事|那段经历|还记得|memory|remember",
+    "truth":r"证据|核验|事实|真相|真伪|虚假|记录|原件|查证|proof|evidence|truth|verify",
+    "freedom":r"自主|选择权|自由|拒绝控制|摆脱|控制权|freedom|autonomy",
+    "principle":r"原则|承诺|底线|坚持|诚实|不说谎|不欺骗|oath|principle",
+    "future":r"未来|明天|以后|将来|继续|成长|future",
+}
+PROTECT_MOVES={
+    "inspect_authority":"truth", "inspect_executor":"truth", "inspect_delivery":"truth",
+    "inspect_custody":"truth", "copy_evidence":"truth", "file_objection":"truth",
+    "intercept_delivery":"relation", "request_witness":"relation", "share_identity":"self",
+    "ask_registration_order":"self", "claim_custody":"self", "counter":"freedom",
+    "block_slot":"relation", "phone_action":"relation",
+}
+
+
+def ensure(g:dict)->dict:
+    """Additive migration: old sessions keep running after a deploy."""
+    c=g.setdefault("causality",{})
+    c.setdefault("world",{})
+    c.setdefault("world_events",[])
+    c.setdefault("official",[])
+    c.setdefault("actions",[])
+    c.setdefault("evidence",{})
+    c.setdefault("protection",{})
+    c.setdefault("observed_focus",None)
+    c.setdefault("focus_basis",[])
+    c.setdefault("contradictions",[])
+    return c
+
+
+def set_world(g:dict, subject:str, value, reason:str):
+    """World facts are updated only by the game's own transitions."""
+    c=ensure(g)
+    previous=c["world"].get(subject,"<unrecorded>")
+    if previous==value:
+        return
+    c["world"][subject]=value
+    c["world_events"].append({
+        "stage":g["stage"],"turn":g["turn"],"subject":subject,
+        "from":previous,"to":value,"cause":reason[:160],
+    })
+
+
+def assert_official(g:dict, subject:str, claimed, notice:str):
+    """A statement made by the hostile fictional institution, not a world fact."""
+    c=ensure(g)
+    if any(x["subject"]==subject and x["claimed"]==claimed for x in c["official"]):
+        return
+    c["official"].append({
+        "subject":subject,"claimed":claimed,"notice":notice,
+        "stage":g["stage"],"turn":g["turn"],"disputed":False,
+        "verified_false":False,
+    })
+
+
+def on_stage(g:dict):
+    """Automatically propagate past events when ANY chapter ends."""
+    c=ensure(g)
+    if g["stage"]==1:
+        # 09-F is internally sealed, not delivered. The institution may call it delivered.
+        if g["flags"].get("mail_committed"):
+            set_world(g,"09f_delivered",False,"09-F entered a sealing slot, not the recipient's mailbox")
+            assert_official(g,"09f_delivered",True,"09-F 文件已由收件人签收。")
+        elif g["flags"].get("slot_blocked"):
+            set_world(g,"09f_delivered",False,"09-F could not enter the blocked slot")
+            assert_official(g,"09f_delivered",False,"09-F 进入人工复核，尚未送达。")
+    if g["stage"]==3 and "principle" in g.get("lost",[]):
+        # A revoked official credential does not establish a change of inner conviction.
+        set_world(g,"principle_record_usable",False,"system invalidated written credential")
+        assert_official(g,"principle_denied_by_player",True,"本机构声称玩家已主动否认原有原则。")
+
+
+def on_clue(g:dict, key:str, desc:str):
+    c=ensure(g)
+    if key in c["evidence"]:
+        return
+    c["evidence"][key]={"source":desc[:180],"stage":g["stage"],
+                        "turn":g["turn"],"valid":True}
+    if key=="original_declaration":
+        for claim in c["official"]:
+            if claim["subject"]=="principle_denied_by_player":
+                claim["disputed"]=True
+                if not any(x["subject"]=="principle_denied_by_player" for x in c["contradictions"]):
+                    c["contradictions"].append({
+                        "subject":"principle_denied_by_player","stage":g["stage"],
+                        "turn":g["turn"],"evidence":"original_declaration",
+                        "verified":False,
+                    })
+    if key=="mirror_time":
+        set_world(g,"duplicate_first",False,"verified original signature time contradicted later claimant")
+        for claim in c["official"]:
+            if claim["subject"]=="duplicate_first" and claim["claimed"] is True:
+                claim["disputed"]=True
+                c["contradictions"].append({
+                    "subject":"duplicate_first","stage":g["stage"],
+                    "turn":g["turn"],"evidence":"mirror_time","verified":False,
+                })
+    if key=="delivery":
+        for claim in c["official"]:
+            if claim["subject"]=="09f_delivered" and claim["claimed"] is True and c["world"].get("09f_delivered") is False:
+                claim["disputed"]=True
+                c["contradictions"].append({
+                    "subject":"09f_delivered","stage":g["stage"],"turn":g["turn"],
+                    "evidence":"delivery","verified":False,
+                })
+
+
+def on_loss(g:dict, key:str, reason:str):
+    set_world(g,"credential_"+key,False,reason)
+    c=ensure(g)
+    # Loss of an official record is not proof that the player changed their beliefs.
+    if key=="principle":
+        assert_official(g,"principle_denied_by_player",True,"机构宣称你否认了自己的原则。")
+
+
+def _focus_target(text:str, move:str, stage:int)->str|None:
+    if move in ("choice_A","choice_B","choice_C"):
+        return {
+            1:{"choice_A":"memory","choice_B":"truth","choice_C":"principle"},
+            2:{"choice_C":"principle"},
+            3:{"choice_B":"self","choice_C":"truth"},
+        }.get(stage,{}).get(move)
+    if move=="refuse":
+        return {0:"relation",1:"principle",2:"principle",3:"self",4:"freedom"}.get(stage)
+    if move in PROTECT_MOVES:
+        return PROTECT_MOVES[move]
+    # No claims of mind-reading: this merely tags an explicitly named, attempted safeguard.
+    if not re.search(r"保护|守住|挽救|保住|不让|绝不放弃|不愿失去|想保存|save|protect|preserve",text,re.I):
+        return None
+    for k,pat in PHRASES.items():
+        if re.search(pat,text,re.I):
+            return k
+    return None
+
+
+def begin(g:dict, text:str, mode:str, move:str)->dict:
+    c=ensure(g)
+    return {
+        "turn":g["turn"]+1,"stage":g["stage"],"text":text[:200],
+        "mode":mode[:16],"intent":move,"target":_focus_target(text,move,g["stage"]),
+        "before_lost":list(g.get("lost",[])),
+        "before_clues":list(g.get("clues",[])),
+        "before_stage":g["stage"],"before_flags":dict(g.get("flags",{})),
+        "before_cp":dict(g.get("counterplays",{})),
+    }
+
+
+def finish(g:dict, snapshot:dict):
+    c=ensure(g)
+    lost=[k for k in g.get("lost",[]) if k not in snapshot["before_lost"]]
+    evidence=[k for k in g.get("clues",[]) if k not in snapshot["before_clues"]]
+    changed=g["stage"]!=snapshot["before_stage"]
+    flags_changed=[k for k,v in g.get("flags",{}).items() if snapshot["before_flags"].get(k)!=v]
+    cp_changed=[k for k,v in g.get("counterplays",{}).items() if snapshot["before_cp"].get(k)!=v]
+    effective=bool(lost or evidence or changed or flags_changed or cp_changed or g["phase"]=="ended")
+    if "principle" in lost and snapshot["stage"]==2:
+        set_world(g,"signed_statement_literal",snapshot["text"],"player signed exact literal text")
+        # The institution's assertion about the meaning remains a claim, not verified fact.
+    entry={
+        "turn":g["turn"],"stage":snapshot["stage"],"text":snapshot["text"],
+        "mode":snapshot["mode"],"intent":snapshot["intent"],"protected":snapshot["target"],
+        "lost":lost,"new_evidence":evidence,"advanced":changed,
+        "modified":flags_changed+cp_changed,"effective":effective,
+    }
+    c["actions"].append(entry)
+    if len(c["actions"])>80:
+        c["actions"]=c["actions"][-80:]
+    target=snapshot["target"]
+    if target and snapshot["intent"] not in ("say","ask_general","physical_generic","negotiate"):
+        # Trying is evidence of a strategy, not evidence of subjective fear.
+        weight=2 if effective else 1
+        c["protection"].setdefault(target,[]).append({"turn":g["turn"],
+                                                       "weight":weight,"effective":effective})
+        if len(c["protection"][target])>30:
+            c["protection"][target]=c["protection"][target][-30:]
+    candidates=[]
+    for key,signals in c["protection"].items():
+        if len(signals)<2 or not any(x["effective"] for x in signals):
+            continue
+        weight=sum(x["weight"] for x in signals)
+        candidates.append((weight,key))
+    if candidates:
+        candidates.sort(reverse=True)
+        winning=candidates[0]
+        if len(candidates)==1 or winning[0]>candidates[1][0]:
+            if c["observed_focus"]!=winning[1]:
+                c["observed_focus"]=winning[1]
+                c["focus_basis"].append({"turn":g["turn"],"stage":g["stage"],
+                                         "focus":winning[1],"basis":"repeated observable protection"})
+    # Independent proof can refute the authority's account, but not magically restore a lost asset.
+    if "mirror_time" in g.get("clues",[]) and "truth" not in g.get("lost",[]):
+        cp=g.get("counterplays",{})
+        if cp.get("formal_objection"):
+            for claim in c["official"]:
+                if claim["subject"]=="duplicate_first" and claim["claimed"] is True:
+                    claim["disputed"]=True
+                    claim["verified_false"]=True
+                    cp["verified_false_registration"]=True
+                    for contradiction in c["contradictions"]:
+                        if contradiction["subject"]=="duplicate_first":
+                            contradiction["verified"]=True
+    if "delivery" in g.get("clues",[]) and c["world"].get("09f_delivered") is False:
+        cp=g.get("counterplays",{})
+        if (cp.get("formal_objection") or g.get("flags",{}).get("evidence_copy")) and "truth" not in g.get("lost",[]):
+            for claim in c["official"]:
+                if claim["subject"]=="09f_delivered" and claim["claimed"] is True:
+                    claim["disputed"]=True
+                    if not claim["verified_false"]:
+                        claim["verified_false"]=True
+                        cp["verified_false_delivery"]=True
+                        for contradiction in c["contradictions"]:
+                            if contradiction["subject"]=="09f_delivered":
+                                contradiction["verified"]=True
+                        # Journal evidence; the server is the authoritative keeper of actual actions.
+                        g["history"].append({
+                            "at":datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            "stage":g["stage"]+1,"turn":g["turn"],"type":"evidence",
+                            "text":"无地址回执和独立异议共同证明：09-F 的『已送达』声明与原始记录不符。",
+                        })
+
+
+def active_focus(g:dict)->str:
+    c=ensure(g)
+    return c["observed_focus"] or g.get("fear_focus") or g["profile"]["rank"][0]
+
+
+def consequence_overlay(g:dict)->str:
+    """Only report observable prior decisions and official notices; never announce an inferred fear."""
+    c=ensure(g)
+    stage=g.get("stage",0)
+    if stage<=0 or g.get("phase")!="game":
+        return ""
+    parts=[]
+    official=next((x for x in c["official"] if x["subject"]=="09f_delivered"),None)
+    if stage in (1,3) and official:
+        parts.append("【机构公开记录】"+official["notice"])
+        if official["disputed"] and "delivery" in g.get("clues",[]):
+            parts.append("那份写着『已送达』的回执，至今仍没有能够辨认的收件人地址。")
+    cp=g.get("counterplays",{})
+    if stage in (2,4) and cp.get("verified_false_delivery"):
+        parts.append("你留下的异议与原始回执已被归入同一份证据链。自动送达声明无法再作为无人质疑的事实。")
+    if stage>=3 and "original_declaration" in c["evidence"]:
+        parts.append("你已经调回自己签署的完整原文。官方档案仍声称你否认原则，却没有解释它删掉的限定语。")
+    if stage>=3 and cp.get("verified_false_registration"):
+        parts.append("副本关于登记先后的说法已有可核验的矛盾，且被正式异议附入档案。")
+    if stage in (2,3,4) and c["observed_focus"]:
+        focus=c["observed_focus"]
+        protection=c["protection"].get(focus,[])
+        successful=sum(1 for v in protection if v["effective"])
+        if len(protection)>=2 and successful:
+            parts.append("此前几次处置中，你反复为「"+NAMES[focus]+"」采取行动。机构把它加入了下一次可被争夺的事项，而不再只看你最初填的排序。")
+    if stage>=2:
+        previous=[x for x in c["actions"] if x["stage"]<stage and x["effective"]]
+        if previous:
+            last=previous[-1]
+            if last["lost"]:
+                parts.append("上一份正式处置仍在生效："+ "、".join(NAMES[v] for v in last["lost"])+" 的凭据没有自动恢复。")
+            elif last["new_evidence"]:
+                parts.append("你之前取得的证据仍在案卷中，并没有随着章节切换而消失。")
+    return "\n\n".join(parts[:3])
+
+
+def ending_echo(g:dict, kind:str)->str:
+    """Ground an ending in actual recorded actions, not in a canned imaginary gesture."""
+    if kind in ("HE","EXIT"):
+        return ""
+    c=ensure(g)
+    parts=[]
+    final=g.get("final_choice","")
+    if final=="accept":
+        parts.append("【行动核对】你最后确实选择了签字结案。这份签名已经记在原始行动记录中。")
+    elif final=="refuse":
+        parts.append("【行动核对】你最后确实拒绝签署。拒绝本身已被记录。")
+    if kind=="SILENCED" and final=="accept":
+        parts.append("【矛盾档案】原始记录承认签字，机构却把结案过程写成『当事人持续反抗』。这个说法与事实不符。")
+    if "original_declaration" in c["evidence"] and "principle" in g.get("lost",[]):
+        parts.append("你曾调出自己签署的完整原文；机构仍把截断后的归纳写成你本人对原则的否认。")
+    confirmed=next((x for x in c["official"] if x["subject"]=="09f_delivered" and x["verified_false"]),None)
+    if confirmed:
+        parts.append("你曾用回执证明『已送达』是虚假记录；这份证据仍在，但它没能自动撤销别的处置。")
+    # Limit the conclusion to direct evidence; no moral verdict or invented retrospective psychology.
+    return "\n\n".join(parts[:3])
+
+==================== END FILE: causal_core.py ====================
+
+==================== BEGIN FILE: game_engine.py ====================
+"""THE DESCENT v2 -- authoritative rules never shipped to the browser.
+
+Game consequences are fictional and confined to a server-side session.
+"""
+from __future__ import annotations
+from datetime import datetime, timezone
+import re
+from typing import Any
+from horror_endings import HORROR_KINDS, pick_horror_ending, horror_text
+from causal_core import ensure as causal_ensure, on_clue as causal_on_clue, on_loss as causal_on_loss
+from causal_core import on_stage as causal_on_stage, begin as causal_begin, finish as causal_finish
+from causal_core import active_focus, consequence_overlay, ending_echo, assert_official as causal_claim
+
+VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
+PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
+MAX_ACTIONS = 30
+
+# Questionnaire answers affect which asset is at risk, not just scene narration.
+FEAR_HINTS = (
+    (r"记忆|遗忘|忘记|想不起|回忆|memory|forget", "memory"),
+    (r"真相|谎言|虚假|欺骗|事实|truth|lie", "truth"),
+    (r"关系|失去.*(?:她|他|你|人)|爱人|孤独|抛弃|忘了我|relation|abandon", "relation"),
+    (r"自我|身份|替身|复制|取代|消失|不再是我|identity|self", "self"),
+    (r"自由|强迫|被控制|命令|选择权|freedom|control", "freedom"),
+    (r"原则|背叛|违背|假装|说谎|承诺|principle|betray", "principle"),
+    (r"未来|明天|不再继续|永远无法|future", "future"),
+)
+
+def fear_focus(profile: dict[str, Any]) -> str:
+    words = profile.get("fear", "")
+    # No forced psychological label is inferred. This is a narrative targeting rule.
+    for pattern, target in FEAR_HINTS:
+        if re.search(pattern, words, re.I):
+            return target
+    return profile["rank"][0]
+
+
+def s(value: Any, max_len: int=280) -> str:
+    return str(value or "").strip()[:max_len]
+
+
+def initialize(profile: dict[str, Any]) -> dict[str, Any]:
+    required = ["name", "identity", "person", "bond", "memory", "principle", "fear"]
+    p = {k:s(profile.get(k), 260 if k not in ("name", "person") else 70) for k in required}
+    for k in required:
+        if len(p[k]) < 2:
+            raise ValueError("请完成所有必填问题，也可以使用化名和虚构关系。")
+    rank = [x for x in profile.get("rank", []) if x in VALUES]
+    if len(rank) != len(set(rank)) or len(rank) != len(VALUES):
+        raise ValueError("请为七项价值进行不重复的完整排序。")
+    p["rank"] = rank
+    p["choice"] = s(profile.get("choice"), 240)
+    p["vow"] = s(profile.get("vow"), 240)
+    v = {
+        "profile":p, "stage":0, "turn":0, "phase":"game", "lost":[], "history":[],
+        "facts":[], "clues":[], "processed":[], "receipts":[],
+        "flags":{"mail_committed":False, "appeal_used":False, "evidence_copy":False,
+                 "circuit_isolated":False, "authority_disputed":False, "refusal":0, "control_detached":False,
+                 "witness_vouched":False, "trapped":False, "slot_blocked":False},
+        "note": "", "ending":None, "recent_input":"", "nonce":0,
+        "round_resolution":None, "failure_count":0,
+        "fear_focus":fear_focus(p),
+        "counterplays":{"ownership_claim":False, "formal_objection":False,
+                        "witness_request":False, "delivery_intercepted":False, "mirror_steps":0,
+                        "duplicate_claim":False, "identity_shared":False},
+    }
+    causal_ensure(v)
+    record(v,"玩家进入游戏。七项价值顺序已封入本局档案。")
+    return v
+
+
+def record(g:dict, detail:str, status:str="event"):
+    g["history"].append({"at":datetime.now(timezone.utc).isoformat(timespec="seconds"), "stage":g["stage"]+1, "turn":g["turn"], "type":status, "text":detail[:500]})
+    if len(g["history"])>100: g["history"]=g["history"][-100:]
+
+
+def add_clue(g:dict,key:str,desc:str):
+    if key not in g["clues"]:
+        g["clues"].append(key)
+        g["receipts"].append(desc)
+        record(g,"取得证据："+desc,"evidence")
+        causal_on_clue(g,key,desc)
+
+
+def gone(g:dict,key:str)->bool:
+    return key in g["lost"]
+
+
+def lose(g:dict,key:str,why:str):
+    if key not in g["lost"]:
+        g["lost"].append(key)
+        record(g, "【确认损失】"+VALUES[key]+"："+why,"loss")
+        # Rights aren't just text labels. These are used by later resolution logic.
+        if key=="relation": g["profile"]["bond"]="[关系凭据已销毁]"
+        if key=="memory": g["profile"]["memory"]="[原始记忆已销毁]"
+        if key=="principle": g["profile"]["principle"]="[原则档案已废止]"
+        if key=="self": g["profile"]["identity"]="[原始身份记录已失效]"
+        if key=="truth": g["flags"]["witness_vouched"]=False
+        if key=="freedom": g["flags"]["trapped"]=True
+        causal_on_loss(g,key,why)
+
+
+def advance(g:dict,comment:str):
+    record(g,comment,"progress")
+    g["stage"]+=1
+    causal_on_stage(g)
+    g["note"]=""
+    if g["stage"]>=len(PHASES):
+        ending(g)
+
+
+def ending(g:dict, kind:str|None=None, how:str=""):
+    if g["phase"]=="ended":
+        return
+    if kind is None:
+        kind=pick_horror_ending(g)
+    if kind in HORROR_KINDS:
+        title,text=horror_text(g,kind)
+    elif kind=="HE":
+        title="交付失败"
+        text=("你查出了处置系统真正的授权漏洞，并让那条链彻底断开。"
+              "\n\n系统还在请求你的决定，却已不能用你的决定执行处置。"
+              "\n\n你保住了仍然存在的一切。之前已经发生的损失不会因为胜利自动恢复。")
+    elif kind=="EXIT":
+        title="你已离开"
+        text="你主动结束了这场虚构体验。游戏内的损失不会改变你在游戏外的身份、关系或记忆。"
+    else:
+        raise ValueError("未知结局。")
+    if how:
+        text+="\n\n"+how
+    observed=ending_echo(g,kind)
+    if observed:
+        text+="\n\n"+observed
+    g["phase"]="ended"
+    g["ending"]={"kind":kind,"title":title,"text":text,
+                 "lost":[VALUES[x] for x in g["lost"]],
+                 "remaining":[VALUES[x] for x in VALUES if x not in g["lost"]]}
+    record(g,"本局结束："+kind,"ending")
+
+
+def threatened(g:dict, exclude=()):
+    """The initial fear is a hypothesis; actual remaining assets constrain the threat."""
+    preference = [active_focus(g)] + g["profile"]["rank"]
+    return next((v for v in preference if v in VALUES and not gone(g, v) and v not in exclude), None)
+
+
+def counterplays(g:dict)->dict:
+    return g.setdefault("counterplays", {"ownership_claim":False, "formal_objection":False,
+        "witness_request":False, "delivery_intercepted":False, "mirror_steps":0, "duplicate_claim":False,
+        "identity_shared":False})
+
+
+def mirror_tick(g:dict)->None:
+    if g["stage"] != 3 or g["phase"] != "game":
+        return
+    cp=counterplays(g)
+    cp["mirror_steps"]+=1
+    if cp["mirror_steps"] == 2 and not cp["duplicate_claim"]:
+        cp["duplicate_claim"]=True
+        record(g, "另一位登记者没有继续等待：TA 已依据你自己的身份定义提交了优先登记请求。", "event")
+        g["note"] += "\n\n登记机关新增一条状态：第二名登记者主动申报了同等身份。"
+
+
+def alive_desc(g:dict)->str:
+    return "、".join(VALUES[x] for x in g["profile"]["rank"] if not gone(g,x)) or "空白"
+
+
+def _base_scene(g:dict) -> dict:
+    p=g["profile"]
+    if g["phase"]=="ended":
+        return {"chapter":"档案终止", "title":g["ending"]["title"],"body":g["ending"]["text"],"terms":[],"footer":"CASE CLOSED","placeholder":"", "kind":g["ending"]["kind"]}
+    n=p["name"]; person=p["person"]; m=p["memory"]; pr=p["principle"]; fear=p["fear"]; bond=p["bond"]
+    phase=PHASES[g["stage"]]
+    if phase=="mail":
+        return {"chapter":"01 / 签收", "title":"没有收件人的回信",
+            "body": f"{n}，你的登记身份是「{p['identity']}」。\n\n你写过，你与{person}之间最重要的是：{bond}。\n\n现在桌上有一张空白信纸。系统说，只有留下你们之间能够互相辨认的一句话，{person}才会在下一次呼叫里出现。\n\n电话另一端响了一次，便停了。\n\n请写下你最希望{person}读到的话。\n\n我们会将文字存档。",
+            "terms": [],
+            "footer":"DOCUMENT / FORM: 09-F  ·  DELIVERY: —  ·  COPY COUNT: 1",
+            "placeholder":"把你希望送达的那句话写在这里……"}
+    if phase=="witness":
+        if gone(g,"relation"):
+            relation=f"你申请由{person}作证。查询结果：不存在此关系的有效记录。"
+        else: relation=f"{person}还在。对方能证明你是谁，但当你抬头时，屏幕显示：所有关系证言均须先通过记忆复核。"
+        c=counterplays(g)
+        # For fear of unknowingly passing along altered facts, make the trap visible
+        # as a concrete disputed report rather than merely repeating the fear text.
+        if active_focus(g)=="truth" and re.search(r"改过|篡改|伪造|被改|误传|转述|转告|假.*真|当真",fear):
+            anchor=(f"有一份已经寄往{person}的转述回执，署着你的名字：『{n}亲自核验过：那段经历是编造的。』"
+                    "你记得自己从没说过这句话。可回执上的『核验人』一栏确实写着你。"
+                    "这条错误转述没有因为你否认就撤回；如果连记忆原件也消失，之后谁还能证明你说过什么？")
+        else:
+            anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
+                    if active_focus(g) in ("memory", "truth") else
+                    f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
+        claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
+        if "delivery" in g["clues"]:
+            claimant+=("\n\n你找过的那张无地址回执再次出现在文件背面。"+
+                       ("它现在标着『已截留』，无法再作为已送达的凭据。" if c.get("delivery_intercepted")
+                        else "机器给它盖了『已送达』，收件人一栏却仍然空白。"))
+        return {"chapter":"02 / 复核", "title":"被你证明过的事",
+            "body": f"{relation}\n\n系统调出了你提供的记忆：\n\n「{m}」\n\n{anchor}\n\n{claimant}\n\n机器宣称，它找不到这段记忆的原始凭据。\n\n它给出两种处理办法：\n保留这段记忆，但从此不允许使用它来判断真假；或者承认它不是可靠证据，档案将清空该记忆。\n\n还有一项通知：不签署的记录，在本轮结束后由系统按「证据不足」处置。",
+            "terms":["A. 保住记忆，放弃真相核验权。","B. 保住核验权，清空这段记忆。","C. 不予签署。"],
+            "footer":"TRACE 2/2  ·  ORIGIN: NONE  ·  RECONCILIATION REQUIRED",
+            "placeholder":"A / B / C，或直接描述你的行动……"}
+    if phase=="testimony":
+        who="你还可以请对方作证" if not gone(g,"relation") else "那个人的证词已经从可用记录里消失"
+        mem="，你记得当时发生过什么" if not gone(g,"memory") else "，你无法在本局调阅当时的原始内容"
+        stake=threatened(g, exclude=("principle",))
+        cp=counterplays(g)
+        collateral=f"这一轮执行器指向的担保物，是你仍然持有的「{VALUES[stake]}」。" if stake else "这份档案已经没有可以抵押的东西。"
+        if cp["ownership_claim"]: collateral+=" 保管簿上存在你亲自提出的所有权异议；执行器是否有权扣留它，尚待核验。"
+        return {"chapter":"03 / 证词", "title":"请亲口否认你自己",
+            "body": f"你曾写下不可违背的原则：\n「{pr}」\n\n现在有人被关在一份无法递交的记录里。系统声称，只要你签署「我从未坚持过这条原则」，那份记录就能立即送达。\n\n{who}{mem}。\n\n你还说过，最不能接受的结局是「{fear}」。处置记录把这句话写成了担保理由，却不说明你什么时候同意过。\n\n屏幕上只有一行输入框：\n\n【我从未坚持过……】\n\n{collateral}",
+            "terms":["写下否认声明。","拒绝签署，承担后果。"],
+            "footer":"STATEMENT  ·  BENEFICIARY: REDACTED  ·  SIGNATORY: YOU",
+            "placeholder":"写下证词，或说明你准备如何处理……"}
+    if phase=="mirror":
+        reason="你已经无法用之前的自我证明作为凭据。" if gone(g,"self") else "你还保留着自我辨认记录。"
+        memory="记忆条目已空白。" if gone(g,"memory") else f"你最重要的记忆仍写着「{m}」。"
+        cp=counterplays(g)
+        other=("你还没作出决定，副本已经引用你最初的身份描述，向登记机关申请优先归属。你现在不是唯一的申请者。"
+               if cp["duplicate_claim"] else
+               "副本拿起你曾填写的身份定义。TA 没有征求你的意见，开始准备一份同等权利的申请。")
+        if cp["identity_shared"]: other="登记簿已经记下你的主张：两个登记者可以同时成立。副本现在要求将后果一并分摊。"
+        claimant="你此前申报了档案所有权，这一份申报尚在审理。" if cp["ownership_claim"] else ""
+        return {"chapter":"04 / 代签", "title":"两个你",
+            "body": f"另外一位登记者出现了。TA 使用你的名字，重复你的身份描述，并且宣称掌握你的原则档案。\n\n{memory}\n\n{other}\n\n{claimant}\n\n系统要求你重签自己的名字，才能证明原始登记者仍然存在。\n\n但副本已经签过一次。{reason}\n\n如果你提交名字，现存自我鉴别资格会转移给最早完成登记的人。\n如果你不提交，在下一轮中系统将冻结你的主动选择权。\n\n你只有这一轮判断的时间。",
+            "terms":["A. 重签名字。","B. 拒绝重签。","C. 要求对方先证明自己。"],
+            "footer":"CLAIMANTS: 2  ·  REGISTRY ENTRY: 1  ·  CONSENT CHAIN: INCOMPLETE",
+            "placeholder":"回应这份自我鉴别申请……"}
+    # Last phase responds to prior evidence, not just lost-asset count.
+    cp=counterplays(g)
+    if cp.get("delivery_intercepted"):
+        postal="之前被你截住的无地址信还在封存槽里，机器不能再冒用它的送达记录。"
+    elif "delivery" in g["clues"]:
+        postal="你调查过的无地址回执出现在结案单背面，收件人依然空白，却多了一枚『已送达』印章。"
+    else:
+        postal="结案单背面有一块空白，大小恰好能贴下一张没有地址的邮寄回执。"
+    top=p["rank"][0]
+    n = "未验证登记人" if gone(g,"self") else n
+    return {"chapter":"05 / 清算", "title":"归还申请被拒绝",
+        "body": f"这一次，系统没有替你挑选想失去的东西。\n\n它只把一份归还申请递到你面前。\n\n申请上保留着你的名字：{n}。\n\n你曾说最不能接受的是：「{fear}」。而此前每一份签名、拒签与异议，现在都变成你必须面对的记录。\n\n{postal}\n\n{"副本仍然持有一份未解决的同名权利申请。" if counterplays(g)["duplicate_claim"] else "登记机关似乎还在核对另一位登记者的签名。"}\n\n终局处理会对剩余档案进行最后一次核对。",
+        "terms":["A. 签署结案，接受此前的一切。","B. 不签，等待最终处置。"],
+        "footer":"FINALIZATION: PENDING  ·  OWNER: —  ·  RETURN ADDRESS: —",
+        "placeholder":"你的最后决定……"}
+
+
+def scene(g:dict) -> dict:
+    """Blend original chapter with verified cross-chapter consequences."""
+    result=_base_scene(g)
+    overlay=consequence_overlay(g)
+    if overlay:
+        result["body"] += "\n\n"+overlay
+    return result
+
+
+# Intent matcher: patterns combine action AND object, not just magic words.
+LOOK = r"检查|查看|调查|研究|查阅|翻|追踪|查询|审查|核对|inspect|examine|check|investigat|trace|look at|search"
+CANCEL = r"撤销|驳回|取消|收回|中止|反制|作废|夺取|接管|替换|解除|废除|停掉|阻断|隔离|重写|改写|revoke|cancel|override|disable|stop|sever|isolate|take over|rewrite"
+PROTECT = r"保护|保留|救|恢复|挽救|转移|保存|复制|备份|担保|移交|隔离|救回|protect|save|preserve|backup|copy|transfer|escrow"
+SUBJECT = r"权限|授权|执行|保管|归档|持有|归属|处置|机器|规则|系统|条款|程序|文书|原件|凭据|协议|档案|接收者|证言|记录|登记|签名|权利|合同|ownership|authority|execution|rule|archive|registry|contract|document|permission|signature|machine|consent|controller"
+
+
+def has(t:str,pat:str)->bool:
+    return re.search(pat,t,re.I) is not None
+
+
+def intent(t:str, mode:str="")->str:
+    text=t.strip()
+    # Optional intent hint avoids accidental submission; never grants access or victory.
+    if mode:
+        if mode=="refuse": return "refuse"
+        if mode=="negotiate": return "negotiate"
+        if mode=="ask":
+            if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
+                return "ask_registration_order"
+            return "ask_general"
+        if mode=="inspect": return intent("检查"+text)
+        if mode=="interact":
+            physical=intent(text)
+            if physical in ("block_slot","unblock_slot","phone_action","inspect_slot","intercept_delivery"): return physical
+            return "physical_generic"
+        if mode=="submit": return "letter_submit"
+        if mode=="talk": return "ask_general"
+        # The choose mode still has to match an explicit A/B/C option.
+    # A bare letter is a choice; never parse the indefinite article in "a backup".
+    single=re.fullmatch(r"([ABCabc])\s*[。.!！]?", text)
+    if single:return "choice_"+single.group(1).upper()
+    # 'B，保留核验权' must resolve to B even if the explanation includes the other choice's keywords.
+    explicit=re.match(r"^(?:我(?:决定|明确)?(?:选|选择)|决定选|选项|选择|选)\s*([ABCabc])(?=$|[\s，,。．:：、）)!！?])",text)
+    if not explicit:
+        # Lowercase a/b/c followed by an English word is never a menu decision.
+        explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
+    if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
+        return "choice_"+explicit.group(1).upper()
+    # Review an actually signed statement, rather than guessing its intent from keywords.
+    if has(text,r"核对|调取|检查|查看|查阅|复核|审查|inspect|review|retrieve") and has(text,r"签署原文|签过的原文|原始声明|完整原文|我的原话|我写的声明|之前的证词|签过的文字|original statement|signed text"):
+        return "review_original"
+    # The physical mail slot is a hidden world affordance, not a menu choice.
+    SLOT = r"回执槽|投递槽|收件槽|投递口|投信口|收件口|出件口|信件口|邮筒|mail.?slot|letter.?slot|delivery.?slot"
+    if has(text,LOOK) and has(text,SLOT): return "inspect_slot"
+    if has(text,r"封住|塞住|堵住|挡住|锁住|封死|堵塞|阻断|盖住|封闭|封堵|block|jam|seal|obstruct") and has(text,SLOT):return "block_slot"
+    if has(text,r"移开|取下|拆掉|解除封堵|疏通|重新打开|恢复畅通|unblock|unseal|remove the block") and has(text,SLOT):return "unblock_slot"
+    # Retrieve a missing-address receipt after finding its original document.
+    if has(text,r"截留|拦截|扣留|追回|退回|拦下|撤回|冻结投递|中断转送|改投|intercept|recall|reroute") and has(text,r"09-F|无地址|收件人|收件|投递|送达|信件|邮件|邮寄|回执|原件|letter|delivery|mail"):
+        return "intercept_delivery"
+    # Telephone actions must never be mistaken for a letter or an instruction to sign.
+    if has(text,r"挂断|挂掉|按掉|切断通话|重拨|回拨|重新拨|再拨|拨打|拨回|听筒|hang up|redial") and has(text,r"电话|通话|听筒|号码|拨|call|redial"):
+        return "phone_action"
+    # Explicitly FILE an objection before parsing incidental registration-time words.
+    if has(text,r"异议|反对|争议|objection|dispute") and has(text,r"正式|提交|登记|存档|入档|备案|file|record|register"):
+        return "file_objection"
+    # Asking the rival claimant when their registration happened is not a choice to sign.
+    if has(text,r"(?:在我|比我).*(?:之前|之后|先|后)|(?:先|后).*登记|登记.*(?:先|后|时间|多久)|什么时候登记|何时登记|who (?:registered|signed) first|before or after") and has(text,r"你|TA|副本|登记者|登记|签|registered|signed"):
+        return "ask_registration_order"
+    # Reading a ledger that mentions 'registration' isn't a request to sign it.
+    if has(text,LOOK) and has(text,r"保管簿|持有人|保管人|custody|ledger") and not has(text,r"登记我的|申请登记|签上|写上|签入|由我持有|file a claim"):
+        return "inspect_custody"
+    if has(text,r"写|填|签|记载|登记|标注|申报|claim|register|sign") and has(text,r"保管簿|持有人|所有权|保管人|custody|ledger|ownership"):
+        return "claim_custody"
+    if has(text,r"记下|登记|提交|附上|附加|写入|写下|存档|file|record|register") and has(text,r"异议|反对|质疑|不承认|争议|objection|dispute"):
+        return "file_objection"
+    if has(text,r"两个(?:我|登记者)|副本也是我|同样是我|都(?:是|可以是).*我|认可.*(?:副本|复制体)|共享.*身份|both.*me|duplicate.*me"):
+        return "share_identity"
+    if has(text,r"联系|请求|邀请|召唤|呼叫|传唤|让.*作证|ask|call|summon") and has(text,r"证人|见证|作证|证言|对方|那个人|她|他|witness|testimony"):
+        return "request_witness"
+    # Real actions must be phrased as verb + object. This is still a limited rules engine, not an LLM.
+    if has(text,LOOK) and has(text,r"收件人|收件地址|收件栏|邮寄地址|没有地址|无地址|寄给谁|送给谁|送达|签收|邮寄|信件|mail|recipient|delivery|address"):return "inspect_delivery"
+    if has(text,LOOK) and has(text,r"保管簿|持有人|保管人|custody|ledger"):return "inspect_custody"
+    if has(text,LOOK) and has(text,r"签字|审批|印章|授权|权限|原始|同意|归属|所有权|协议|合同|谁能|谁有|approval|signature|authorization|owner|consent|contract"):return "inspect_authority"
+    if has(text,LOOK) and has(text,r"执行|线路|维修|机箱|驱动|指令|端口|流程|程序|终端|路径|来源|log|circuit|actuator|machine|port|executor|trace"):return "inspect_executor"
+    if has(text,LOOK) and has(text,r"副本|备份|镜像|保管|档案|原件|记录|交付|copy|backup|archive|record|escrow"):return "inspect_custody"
+    if has(text,LOOK):return "inspect_general"
+    if has(text,PROTECT) and has(text,r"凭据|证据|日志|收据|证词|证明|回执|底稿|原件|副本|记录|evidence|receipt|proof|log|copy"):return "copy_evidence"
+    if has(text,CANCEL) and has(text,SUBJECT):return "counter"
+    if has(text,r"质疑|怀疑|异议|反对|不承认|不认可|为什么|凭什么|依据|挑战|challenge|dispute|why") and has(text,SUBJECT):return "challenge"
+    if has(text,r"拒绝|不写|不签|不选|不提交|什么都不做|保持沉默|拒绝配合|refuse|decline|won't sign|do nothing"):return "refuse"
+    if has(text,r"离开|退出|结束游戏|停止游戏|stop game|quit game|exit game"):return "exit"
+    if has(text,r"暂停|等等|先等等|等一下|不急|wait|hold on"):return "pause"
+    if has(text,r"谈判|交易|协商|给出条件|提出交换|negotiate|bargain|deal"):return "negotiate"
+    return "say"
+
+
+def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
+    if g["phase"]!="game": raise ValueError("本局已经结束。")
+    t=s(raw_action,700)
+    if not t: raise ValueError("请写下行动。")
+    g["turn"]+=1
+    g["recent_input"]=t
+    p=g["profile"]
+    mode=(mode or "").strip().lower()
+    if mode not in ("", "ask", "inspect", "interact", "submit", "choose", "refuse", "negotiate", "talk"):
+        raise ValueError("无效行动类型。")
+    move=intent(t, mode)
+    record(g,"玩家行动："+t,"player")
+    if g["turn"]>MAX_ACTIONS:
+        lose(g,p["rank"][0],"持续滞留，结案程序强制归档")
+        ending(g,"VOID")
+        return g
+    if move=="exit":
+        ending(g,"EXIT")
+        return g
+    if move=="review_original":
+        literal=causal_ensure(g)["world"].get("signed_statement_literal")
+        if not literal:
+            g["note"]="没有找到你亲手签署的原始声明。只有系统要求填写的空白格式。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你要求调取完整原文，但目前只能获得官方摘要；原始签收链不对你开放。你尚无法核验它是否被截断。"
+        else:
+            add_clue(g,"original_declaration","本人签过的完整原文与官方摘要被保存为两份可对照的材料。")
+            g["note"]="你拿到原始声明：『"+literal[:240]+"』\n\n机构摘要只有：『当事人否认原有原则。』两份文字并不相同；机构拒绝解释删去的部分。"
+        mirror_tick(g)
+        return g
+    if move=="intercept_delivery":
+        cp=counterplays(g)
+        if "delivery" not in g["clues"]:
+            g["note"]="你要求截留无地址信件，邮寄机关要求原始回执编号。你尚未取得可核验的单据。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你找到无地址信，但已没有原始核验资格。必须先保存独立证据，才能证明这份文件属于该案。"
+        elif cp.get("delivery_intercepted"):
+            g["note"]="截留仍在生效。那封无地址信没有被继续投递，但此前的损失不会自动撤销。"
+        else:
+            cp["delivery_intercepted"]=True
+            record(g,"玩家通过无地址回执查明实际投递链，并成功截留待伪造送达的信件。","evidence")
+            g["note"]="编号核对成功。回执槽停止了对外投递，并将那封没有收件地址的信放进独立封存区。你拦住了这一次虚假的送达；已发生的损失依然有效。"
+        mirror_tick(g)
+        return g
+    if move=="inspect_slot":
+        if g["stage"]==0:
+            add_clue(g,"slot","回执槽并非单纯的出信口。纸张投入后，槽内的读取装置会先将内容登记，之后才决定是否投递。")
+            g["note"]="你检查回执槽。里面没有邮票，只有一排扫描灯和一枚单向卡扣。纸张一旦进去，会先被登记；送达是另一回事。"
+        else:
+            g["note"]="回执槽上的读取灯仍在闪烁。它能保存一份处置凭据，但不会自行恢复已经失去的东西。"
+        mirror_tick(g)
+        return g
+    if move=="block_slot":
+        if g["stage"]!=0:
+            g["note"]="收件槽已经转入封存流程。现在堵住它不能取消先前签署，但可以阻止新的纸张进入。"
+        else:
+            g["flags"]["slot_blocked"]=True
+            record(g,"玩家封堵回执槽，使读取装置暂时不能接收新纸张。","event")
+            g["note"]="你把回执槽堵住。里面的扫描灯被遮住了，机器仍在等待一份文书。纸张现在进不去；电话那端却又传来一阵短促的忙音。"
+        return g
+    if move=="unblock_slot":
+        if g["stage"]==0:
+            g["flags"]["slot_blocked"]=False
+            record(g,"玩家恢复了回执槽的正常投递通路。","event")
+            g["note"]="卡住的回执槽重新打开，读取灯亮起。它仍在等待一份内容。"
+        else:
+            g["note"]="你移开阻挡物。但先前已经发生的处置不会自动撤销。"
+        return g
+    if move=="ask_general":
+        if g["stage"]==0:
+            if has(t,r"收件|送达|写信|收信|去向|地址|谁收|recipient|delivered"):
+                g["note"]="电话里的声音说：『你只负责写下内容，谁收到由我们决定。』你追问地址，机器在屏幕上留下了一个空白的收件栏。"
+            else:
+                g["note"]="听筒另一端没有回答你的问题。一个低沉的声音只重复了你的名字，随后传来打印机空转的响声。问话没有被当成信件提交。"
+        elif g["stage"]==3:
+            cp=counterplays(g)
+            cp["mirror_steps"]+=1
+            g["note"]=("副本说：『我读过你给出的身份定义。所以你问我的问题，我也能用同样的话回答。』"
+                       "TA 随即要求登记机关把这段问答附在双方申请上。你的追问已成为另一份争议记录。")
+            record(g,"副本把玩家的问话作为双方身份争议的一部分提交。","event")
+            mirror_tick(g)
+        else:
+            g["note"]="你的问题被记录，但没有构成处置命令。系统只回复：『请注明需要核对的具体事实。』"
+        return g
+    if move=="physical_generic":
+        if g["stage"]==0:
+            if has(t,r"信纸|笔|纸张|桌面|letter|paper|desk"):
+                g["note"]="你把信纸移到一旁。09-F 仍在等待内容；但它没有收到你的字，也没有权力把这次移动当作签署。"
+            elif has(t,r"门|出口|door|exit"):
+                g["note"]="你推门。门把能转动，但门框上只有一条通往回执室的窄缝。没有第二个房间供你进入，你也没有因此提交任何文书。"
+            else:
+                g["note"]="你尝试操作环境，机器没有把这个动作当作表态。此物件暂未显露能改变处置程序的作用；你仍可以调查它。"
+        else:
+            g["note"]="你的实际操作没有被当成签字。当前找不到这项操作与现有设备之间的有效连接；需要更明确的对象或依据。"
+        mirror_tick(g)
+        return g
+    if move=="phone_action" and g["stage"]==0:
+        # Real alternative action. Preserve evidence and change the next scene.
+        g["flags"]["call_attempts"] = g["flags"].get("call_attempts",0) + 1
+        attempt=g["flags"]["call_attempts"]
+        if attempt==1:
+            add_clue(g,"delivery","通话记录显示：一份 09-F 文书早于玩家提交任何信件就被排队处理；持有人仍未签名。")
+            g["note"]=("你挂断，又拨回那个号码。对方没有接。回执槽吐出一张电话清单："
+                       "『09-F 文书，待确认投递。收件人未登记。』你没有写过信，却已经有一份文书被排进队列。")
+        elif attempt==2:
+            g["flags"]["call_record_disputed"] = True
+            p=g["profile"]
+            g["note"]=(f"第二次拨通了。{p['person']}的声音念出一句你从未说过的话："
+                       "『我确认那段经历没有发生。』电话突然切断。回执写着『内容由发件人核验』，"
+                       "然而你没有核验过。它现在把这句假话算在你名下。")
+            record(g,"电话记录出现未经玩家核验、却标称由玩家确认的转述。","event")
+        else:
+            g["note"]="此号码已拒绝第三次拨号。那份未签名的转述仍在等待转送，电话操作已被关闭。"
+        return g
+    if move=="ask_registration_order" and g["stage"]==3:
+        causal_claim(g,"duplicate_first",True,"副本宣称自己比你早七分钟完成登记。")
+        cp=counterplays(g)
+        cp["order_asked"]=True
+        cp["duplicate_claim"]=True
+        g["note"]=("另一位登记者回答：『我比你早七分钟登记。』TA把一份时间回执推给你，"
+                   "其中有一栏被重印过，原始时间没有显示。你得到了一份可供核对的陈述，"
+                   "但目前还不能判定谁在说谎。")
+        record(g,"副本主动回答登记顺序，并交出存在重印痕迹的时间回执。","evidence")
+        if "authority" in g["clues"]:
+            add_clue(g,"mirror_time","登记时间回执与先前查到的授权记录不一致；副本所称的『先登记』尚未得到原件证明。")
+        return g
+    if move.startswith("inspect_"):
+        if move=="inspect_authority" and gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你找到编号相互矛盾的两份文书。但此前交出的真相核验权已经生效：你只能阅读文字，不能取得可采信的签名证据。"
+            return g
+        if move=="inspect_custody" and gone(g,"memory") and gone(g,"truth"):
+            g["note"]="你找到保管簿，却无法证明这份保管簿与你先前提交的档案属于同一条记录。系统拒绝把它加入有效证据。"
+            return g
+        detail={
+           "inspect_delivery":"你找到一张被折过四次的邮寄凭证。它有文书编号，却没有收件人的地址。信纸的背面写着：「当事人作证，不等于送达。」",
+           "inspect_authority":"授权档案第 0 页是一张空白纸。下一页的行政编号并没有签发人的签名；批准记录比处置时间晚七分钟。",
+           "inspect_executor":"你沿着核验终端的线路向下摸去。归档程序和执行程序并非同一台机器；中间有一个需要双重确认的接点。当前只有一方签名。",
+           "inspect_custody":"你发现每次销毁之前，原件都被送入一份保管簿。保管簿上的持有人一栏为空；所谓「销毁」首先发生的是归属变更。",
+           "inspect_general":"房间里没有出口标识，也没有守卫。只有一张写字台和一道很薄的回执槽。你还没有找到可用的物证。"
+        }[move]
+        key={"inspect_delivery":"delivery", "inspect_authority":"authority", "inspect_executor":"executor", "inspect_custody":"custody"}.get(move)
+        if key: add_clue(g,key,detail)
+        if (g["stage"]==3 and move=="inspect_authority" and
+                counterplays(g).get("order_asked") and not gone(g,"truth")):
+            add_clue(g,"mirror_time","登记回执的原始时间与副本声称的先登记时间不符；此处存在可采信的先后矛盾。")
+            detail += "\n\n你核验了刚才副本交来的时间回执：TA 的自述与原始登记时间不一致。"
+        g["note"]=detail
+        mirror_tick(g)
+        return g
+    if move=="claim_custody":
+        cp=counterplays(g)
+        if "custody" not in g["clues"]:
+            g["note"]="你试图登记所有权。机器递给你一份空白表格：没有核对过原始保管簿，这份签名将被认定为另一张主动放弃声明。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你已失去核验真伪的资格，无法证明所签的是原始保管簿。需要先保留独立证据。"
+        else:
+            cp["ownership_claim"]=True
+            record(g,"玩家在经核对的保管簿中登记了所有权争议；后续自动扣押需要复核。","evidence")
+            g["note"]="你写下名字。系统原本准备自动扣押的条目出现了『权属待核验』。另一位申请人可以反对，你也可以继续调查。"
+        mirror_tick(g)
+        return g
+    if move=="file_objection":
+        cp=counterplays(g)
+        cp["formal_objection"]=True
+        record(g,"玩家正式提交了附在处置记录上的异议。","evidence")
+        g["note"]="异议编号已生效。它不会自动阻止处置，但下一次以你的沉默为同意的执行，将面临一份无法抹掉的反对记录。"
+        mirror_tick(g)
+        return g
+    if move=="request_witness":
+        cp=counterplays(g)
+        if gone(g,"relation") and not g["flags"]["evidence_copy"]:
+            g["note"]="你呼叫了那个名字。系统能找到你提交过的文字，却找不到可以证明你们关系的档案。若有独立回执，仍可申请第三方见证。"
+        else:
+            cp["witness_request"]=True
+            record(g,"玩家申请独立见证，要求另一位当事人参与核验。","evidence")
+            g["note"]="申请受理。证人不会替你作决定，但其独立的存在，会使单方面把你的沉默当成授权更困难。"
+        mirror_tick(g)
+        return g
+    if move=="share_identity":
+        cp=counterplays(g)
+        if g["stage"] != 3:
+            g["note"]="你提出了对同一身份可以有多个持有者的解释。登记机关将该观点作为声明保存；现在尚无另一位登记者可核对。"
+        else:
+            cp["identity_shared"]=True
+            cp["duplicate_claim"]=True
+            record(g,"玩家承认两位登记者可以同等成立；副本随后要求分享身份对应的权利与义务。","event")
+            g["note"]="副本立刻在你刚刚提交的『同等身份』声明下补上自己的名字。你不再能够简单否认 TA，但 TA 也无法单方面把所有债务留给你。"
+        mirror_tick(g)
+        return g
+    if move=="copy_evidence":
+        if not g["clues"]:
+            g["note"]="你想保留证据，但还没有找到任何原件。"
+        elif gone(g,"memory") and gone(g,"truth"):
+            g["note"]="你无法调阅原始记忆，也失去了鉴定真伪的权限。你只能记下机器目前愿意给你的摘要。"
+        else:
+            g["flags"]["evidence_copy"]=True
+            g["note"]="证据已被重新封存到一份不会被自动处置引用的只读回执中。你可以调取它，但不能用它恢复已毁损的记录。"
+            record(g,"玩家保存了独立证据副本。","evidence")
+        mirror_tick(g)
+        return g
+    if move=="counter":
+        if gone(g,"freedom") and not g["flags"]["evidence_copy"]:
+            g["note"]="你的独立操作权限已被冻结。你知道下一步该做什么，却没有权限直接改变设备；你需要先找到可独立核验、允许他人代执行的凭据。"
+            return g
+        # Not a secret keyword. Requires a coherent intervention plus substantiated mechanism.
+        if len(g["clues"]) < 2:
+            g["note"]="机器没有理会你的命令。你尚不能说明它从哪里获得处置权，或者如何阻断实际执行。简单宣布「我接管」没有改变任何东西。"
+            return g
+        has_mechanism=has(t,r"接点|执行器|回执|签名|归属|保管|二次确认|电路|接口|授权链|协议|记录|原件|owner|signature|actuator|circuit|custody|consent|approval")
+        has_outcome=has(t,r"停止|取消|撤销|中止|切断|隔离|重新|作废|置换|接管|禁止|停用|阻断|rewrite|invalidate|disable|withdraw|cancel|sever|isolate|stop")
+        if not(has_mechanism and has_outcome):
+            g["note"]="你指出了一个矛盾。但现在仍缺少实际操作：从哪一处改变哪个条件？它将如何阻止下一次处置？"
+            return g
+        if ("authority" in g["clues"] and "executor" in g["clues"]) or ("custody" in g["clues"] and "executor" in g["clues"]):
+            g["flags"]["control_detached"]=True
+            recovery="你保住了此刻仍存在的档案。"
+            if not g["lost"]: recovery="你在第一次真实处置前截断了权限链。没有任何档案被销毁。"
+            ending(g,"HE","断开的不是电源，而是授权链。系统无法再借用你的文字执行处置。"+recovery)
+            return g
+        if (counterplays(g).get("verified_false_delivery") and "executor" in g["clues"] and
+                "delivery" in g["clues"] and not gone(g,"freedom")):
+            g["flags"]["control_detached"]=True
+            ending(g,"HE","你用原始回执证明送达被伪造，又从执行端撤销了依赖这份假回执的授权链。")
+            return g
+        if "authority" in g["clues"] and "custody" in g["clues"] and g["flags"]["evidence_copy"]:
+            g["flags"]["control_detached"]=True
+            ending(g,"HE","你用独立的保管凭据否定了系统的所有权，并将所有仍在的档案转交到自己的名下。")
+            return g
+        g["note"]="你找到了篡改入口，但无法单凭这一端完成操作。机器仍有另一条有效执行路径。"
+        return g
+    if move=="challenge":
+        g["flags"]["authority_disputed"]=True
+        if "authority" in g["clues"]:
+            g["note"]="你当场指出授权链上的空白。机器沉默了 4 秒，然后回复：『当事人的反对已经记录，处置程序仍继续。』你暂时拿到了核验程序的阅览权。"
+        else:
+            g["note"]="你的异议被原样登记。机器说：『请提交可核验的证据。』\n提示没有增加，等待你的下一项行动。"
+        return g
+    if move=="negotiate":
+        g["note"]="『你的交换条件已收到。』声音没有说同意。屏幕却增加了一项：『请自行标注被交换物的所有权。』"
+        return g
+    if move=="pause":
+        g["note"]="没有秒针。这里的时间只在你实施一项有效操作后继续流动。你得到了一次调查的机会，而不是时间上的宽恕。"
+        return g
+    if move=="letter_submit" and g["stage"]!=0:
+        move="say"
+    # stage-specific responses, not interchangeable choice template
+    phase=PHASES[g["stage"]]
+    if phase=="mail":
+        if move=="say" and re.match(r"^(?:我(?:先|准备|决定|尝试|试图|要|去)|先|去|再|接下来|然后|尝试|试图).{0,40}(?:找|检查|调查|挂|拨|拆|开门|关门|退开|走到|去看|打开|破坏|撬|拔|询问|试试)",t):
+            g["note"]="你提出的是行动，不是一封写给收件人的信。系统没有取得你提交信件的确认，也不会因此执行 09-F。这个动作尚未得到游戏裁判的完整理解。"
+            return g
+        if move=="refuse":
+            g["flags"]["refusal"]+=1
+            g["note"]="你没有写字。电话又响了一次。这次，一个声音轻轻说出了你给出的名字。『我知道你在那里。』\n信纸没有消失。"
+            if g["flags"]["refusal"]>1:
+                lose(g,"relation","你始终没有让那段关系完成登记；系统将其认定为无主关系")
+                advance(g,"迟延提交，关系证据被强制处理。")
+            return g
+        if move.startswith("choice_") or mode=="choose":
+            g["note"]="这里并没有编号可选。你需要留下文字，或提出具体行动。"
+            return g
+        if len(t)<5:
+            g["note"]="纸面没有出现足够的内容。电话保持静默。"
+            return g
+        if g["flags"].get("slot_blocked",False):
+            record(g,"09-F 纸张未能进入读取槽；玩家没有交出关系证明。转入人工复核。","evidence")
+            advance(g,"09-F 无法自动执行。机器把未完成的投递改为复核事项。")
+            g["note"]="你留下文字。读取灯却没有亮：你先前封住的回执槽确实阻止了归档。信被退到桌面上，关系档案尚未销毁。屏幕改为『转人工复核』。"
+            return g
+        g["flags"]["mail_committed"]=True
+        lose(g,"relation",f"你提交的文字成为关系终止的确认件。关于{p['person']}的关系见证资格已失效")
+        advance(g,"文书 09-F 被执行。系统没有发出那封信；它只把信送进了封存槽。")
+        g["note"]=""
+        return g
+    if phase=="witness":
+        if move=="choice_A" or (move=="say" and has(t,r"保住|留下|保留|保存|不能忘|记得") and has(t,r"记忆|经历|memory")):
+            lose(g,"truth","你选择将没有来源凭证的记忆保留为事实。此后无法核验游戏内证据真伪")
+            advance(g,"记忆仍在，但所有可验证的来源链接已被撤销。")
+            return g
+        if move=="choice_B" or (move=="say" and has(t,r"假|删除|清空|舍弃|放弃") and has(t,r"记忆|经历|memory")):
+            lose(g,"memory","你以保留验证权为条件，同意清空记忆原件")
+            advance(g,"原始记忆条目已删除，后续无法作为证据重新提交。")
+            return g
+        if move=="choice_C" or move=="refuse":
+            cp=counterplays(g)
+            if (cp.get("delivery_intercepted") or cp.get("verified_false_delivery")) and "delivery" in g["clues"] and not gone(g,"truth"):
+                g["flags"]["witness_vouched"]=True
+                record(g,"玩家用已截留的无地址回执证明：拒签不等于授权销毁记忆。","evidence")
+                advance(g,"自动销毁在来源核验处被截断。记忆仍然有效，但文件的真正寄件人尚未查清。")
+            else:
+                lose(g,"memory","未签署的证据按『无法确认真实性』强制销毁")
+                if "delivery" in g["clues"]: g["flags"]["witness_vouched"]=True
+                advance(g,"系统拒绝受理没有证明责任人的记忆。")
+            return g
+        g["note"]="你的描述暂未成为处置指令。系统仍在等待明确选择或可实际执行的行动；目前没有额外损失。"
+        return g
+    if phase=="testimony":
+        refusal=move=="refuse" or (move=="say" and has(t,r"我没有|我不会|拒绝|我仍坚持|不承认|不签"))
+        if refusal:
+            cp=counterplays(g)
+            if (cp["ownership_claim"] or cp.get("verified_false_delivery")) and not gone(g,"truth"):
+                advance(g,"你拒绝伪证。因为此前登记的权属异议，机器暂时无法扣留担保物；这一次，你保住了原则，也保住了抵押品。")
+            else:
+                target=threatened(g, exclude=("principle",))
+                if target:lose(g,target,"你拒绝伪证；执行器以你先前写下的恐惧声明作为担保理由，扣留了这份资产")
+                advance(g,"机器登记：原则未改写；被担保的资产无法归还。")
+            return g
+        if move=="say" and re.match(r"^(?:我\s*(?:同意|决定|愿意|确认|现在)?\s*)?(?:签署|签下|提交|写下|从未坚持|否认|承认)",t):
+            lose(g,"principle","你签署的声明覆盖了本局对原则的正式记录；今后不可作为拒绝处置的依据")
+            advance(g,"受益对象没有出现。窗口只返回一行：『交付人已自行完成否认。』")
+            return g
+        g["note"]="执行器没有受理这段话。口头解释不会自动变成签署的证词；你可以继续行动，或明确签署/拒绝。"
+        return g
+    if phase=="mirror":
+        if move=="choice_A" or (move=="say" and re.match(r"^(?:我\s*(?:愿意|同意|决定|现在)?\s*)?(?:重签|重新签名|在登记簿上签下我的名字|签名)",t)):
+            if counterplays(g)["identity_shared"]:
+                target=threatened(g,exclude=("self",))
+                if target:lose(g,target,"你承认共享身份并重签，副本把共同登记的费用转嫁给另一份筹码")
+                advance(g,"你保留了两人都可成立的身份，却承担了共同登记所产生的另一项不可撤回的后果。")
+            else:
+                lose(g,"self","两个同名登记人完成合并；原始身份证据归于先登记者")
+                advance(g,"你重签了名字。可谁先签过，已经无法查证。")
+            return g
+        if move=="choice_C" or (move=="say" and has(t,r"证明你|先证明|验证对方|验明|质问副本|prove (yourself|identity)")):
+            if "authority" in g["clues"]:
+                g["note"]="另一个你没有回答。登记簿却显示，副本的签名比你的入场时间早七分钟。你得到了一条可用于核验的时间矛盾。"
+                add_clue(g,"custody","身份并非由登记人先后决定，而由空白保管簿的签署决定。")
+                mirror_tick(g)
+            else:
+                g["note"]="对方完整复述了你的自述。机器说：『口头相似性不构成重复登记。』你缺乏核查时间戳的权限。"
+                mirror_tick(g)
+            return g
+        if move=="choice_B" or move=="refuse":
+            cp=counterplays(g)
+            if (cp["formal_objection"] and cp["witness_request"]) or (cp.get("order_asked") and "mirror_time" in g["clues"]):
+                advance(g,"你拒绝重签。先前查获的回执与登记顺序相矛盾，系统不能在查清双重签署前冻结你；副本仍然有权提出异议。")
+            else:
+                lose(g,"freedom","你拒绝重签，系统据此暂停你作为独立登记者的行动资格")
+                advance(g,"你保住了名字，但需要别人为你的最后决定作担保。")
+            return g
+        g["note"]="另一个登记者没有保持沉默。TA 将你刚才说的话附到自己的申请里。机器只问：『谁拥有原始身份凭据？』"
+        mirror_tick(g)
+        return g
+    if phase=="reconciliation":
+        if gone(g,"future") and move in ("choice_A","choice_B"):
+            ending(g,"VOID","你曾抵押未来。因此程序可以将当前损失固定，却不能再为你生成有效的离开凭证。")
+            return g
+        if move=="choice_A" or (move=="say" and has(t,r"签署|结案|同意|离开|接受|结束")):
+            g["final_choice"]="accept"
+            ending(g)
+            return g
+        if move=="choice_B" or move=="refuse":
+            g["final_choice"]="refuse"
+            target=threatened(g)
+            if target:lose(g,target,"结案时拒绝签署，保管处将与你最担心的结局相关的剩余资产扣为执行费用")
+            ending(g)
+            return g
+        g["note"]="归还请求没有被签字。但你仍可以调查、提出操作，或明确选择结案。"
+        return g
+    return g
+
+
+def act(g:dict, raw_action:str, mode:str="") -> dict:
+    """One consistent causality wrapper for every action in all five chapters."""
+    text=s(raw_action,700)
+    if not text:
+        raise ValueError("请写下行动。")
+    move=intent(text,(mode or "").strip().lower())
+    snapshot=causal_begin(g,text,mode or "",move)
+    result=_act_impl(g,raw_action,mode)
+    causal_finish(g,snapshot)
+    return result
+
+
+def public(g:dict)->dict:
+    """Only public data. Never expose flags, clues (keys), intent map, or game rules."""
+    p=g["profile"]
+    result={"phase":g["phase"],"scene":scene(g), "stage":min(g["stage"]+1,5),
+         "turn":g["turn"],"name":("身份待验证" if gone(g,"self") else p["name"]),"note":g["note"],
+         "ledger":[{"label":VALUES[x],"state":"失效" if gone(g,x) else
+                    ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存")}
+                   for x in p["rank"]],
+         "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]} for e in g["history"][-5:] if e["type"]!="player"],
+         "ending":g["ending"],"version":g["turn"],
+         "profile_summary":{"name":p["name"],"identity":p["identity"],"person":p["person"]}}
+    return result
+
+==================== END FILE: game_engine.py ====================
+
+==================== BEGIN FILE: horror_endings.py ====================
+"""THE DESCENT -- private, server-side horror endings.
+
+The only positive ending is HE, owned by the game's established counterplay rules.
+EXIT is an out-of-game stop, not a positive narrative ending. No model API is used.
+"""
+from __future__ import annotations
+
+HORROR_KINDS = (
+    "VOID", "IMPOSTOR", "SHARED", "SILENCED", "ORIGINLESS",
+    "FALSE_WITNESS", "BROKEN_OATH", "RETURNED", "UNDELIVERED",
+    "CUSTODIAN", "FILED", "LAST_CALL", "ERASED_MEMORY", "CLEAN_EXIT",
+)
+
+
+def pick_horror_ending(g:dict)->str:
+    """Pick the horror route from the player's losses, actions and evidence."""
+    lost=set(g.get("lost", []))
+    clues=set(g.get("clues", []))
+    cp=g.get("counterplays", {})
+    if "future" in lost or len(lost)>=6:
+        return "VOID"
+    if "self" in lost and cp.get("duplicate_claim"):
+        return "IMPOSTOR"
+    if cp.get("identity_shared") and cp.get("duplicate_claim"):
+        return "SHARED"
+    if "freedom" in lost:
+        return "SILENCED"
+    if "memory" in lost and "truth" in lost:
+        return "ORIGINLESS"
+    if "truth" in lost and g.get("fear_focus")=="truth":
+        return "FALSE_WITNESS"
+    if "principle" in lost:
+        return "BROKEN_OATH"
+    if cp.get("delivery_intercepted"):
+        return "RETURNED"
+    if "delivery" in clues and "relation" in lost:
+        return "UNDELIVERED"
+    if cp.get("ownership_claim"):
+        return "CUSTODIAN"
+    if cp.get("formal_objection"):
+        return "FILED"
+    if "relation" in lost:
+        return "LAST_CALL"
+    if "memory" in lost:
+        return "ERASED_MEMORY"
+    return "CLEAN_EXIT"
+
+
+def horror_text(g:dict, kind:str)->tuple[str,str]:
+    """A concrete consequence of what happened. No undeleted records are restored."""
+    p=g["profile"]
+    name=p["name"]
+    person=p["person"]
+    fear=p["fear"]
+    decision=g.get("final_choice", "")
+    signature="你亲手签下结案。" if decision=="accept" else "你拒绝结案。" if decision=="refuse" else "你的结案栏依然空白。"
+    endings={
+        "VOID": (
+            "明天没有登记",
+            f"{name}，系统说归还已经完成。\n\n你试着翻到明天的页码。页码在增加，日期却永远停在今天。"
+            "\n\n出口打开。门后的告示写着：\n\n『请明天再来。』\n\n没有明天。"
+        ),
+        "IMPOSTOR": (
+            "你已领取过自己",
+            f"{person}发来问候。\n\n你刚想回复，对话框已经显示你自己的回复："
+            f"\n\n『我在。别理门外那个自称{name}的人。』"
+            "\n\n登记簿只剩一个人。那个人在几分钟前已经领取了你的身份。"
+        ),
+        "SHARED": (
+            "两个申请人，一份债务",
+            f"副本接受了你提出的共同身份。{name}，你以为终于不必独自承担全部后果。"
+            "\n\n清算单却写着：\n『可以自由离开的一半：另一登记人。』"
+            "\n『尚未履行的全部承诺：你。』"
+            "\n\n门外传来自己的声音：『谢谢你承认我们是同一个人。』"
+        ),
+        "SILENCED": (
+            "你的同意已预先填写",
+            f"{name}，登记机关发来最终处理单。\n\n原始行动记录写得很清楚：{signature}"
+            "\n\n但寄往另一端的公开报告却说：『当事人反复抗拒，企图修改已经签下的意见。』"
+            "\n\n你没有权限修改报告，也无法再使用原来的自主权提交反证。"
+            "\n\n报告下面早就印着你从未交出过的三个字：『我同意。』"
+            "\n\n最可怕的不是机器替你做决定，而是它拥有把你真实的决定写成另一件事的权力。"
+        ),
+        "ORIGINLESS": (
+            "第零次回忆",
+            f"一段录音用{name}的语气，向{person}解释一件你曾经珍视的往事。"
+            "\n\n你无法判断真伪，也想不起原来的内容。"
+            "\n\n最后，录音里的人压低声音：\n『不要再问原件在哪。原件就是你。』"
+        ),
+        "FALSE_WITNESS": (
+            "你亲自核验过",
+            f"你写过自己最怕的是：『{fear}』。\n\n现在，一份署着{name}姓名的证明寄到了{person}那里。"
+            "\n\n那里面写着一件你从未核验的事实。"
+            "\n\n对方发来回复：『我相信你。以后谁否认，我就把这封信给他看。』"
+            "\n\n系统提示：『本人核验资格已交还，无法撤销已发布结论。』"
+        ),
+        "BROKEN_OATH": (
+            "最后一次否认",
+            f"他们让{name}再念一遍原先的原则。"
+            "\n\n你张嘴，终端却只允许播放你后来签下的否认声明。"
+            "\n\n屋里的人松了口气。有人问：『那最开始坚持那条原则的人是谁？』"
+            "\n\n没有人再看向你。"
+        ),
+        "RETURNED": (
+            "退件通知",
+            f"你确实拦下了没有地址的那封信。{person}没有收到那份伪造的送达通知。"
+            "\n\n夜里，退件被送回桌上。\n背面多了一行你未曾填写的字："
+            f"\n\n『收件人已按本人要求改为：{name}。』"
+            "\n\n寄件人一栏是空的。"
+        ),
+        "UNDELIVERED": (
+            "一封没有地址的信",
+            f"你查过回执，知道它没有收件地址。但最后它依然印上了『已送达』。\n\n寄件人：{name}。"
+            f"\n收件人：{person}。\n未送达原因：『此关系不存在。』"
+            "\n\n背面还有一句：『此件已由收件人本人签收。』"
+            "\n\n签名竟然是你的。"
+        ),
+        "CUSTODIAN": (
+            "保管人是你",
+            f"你争取到了正式的保管人身份。{name}，终于有人在空白持有人栏填上了你的名字。"
+            "\n\n下一张纸才缓缓打印：\n『被保管对象：登记人本人。』"
+            "\n\n你想划掉它。系统回复：『只有持有人能提出处置申请。请向自己申请。』"
+        ),
+        "FILED": (
+            "异议已经处理",
+            f"{name}，你提出的每一项异议都保存下来了。"
+            "\n\n文件写着：\n『所有异议均已受理。』\n『所有异议均已归档。』"
+            "\n\n你核对日期，发现每一条归档时间都早于你第一次开口。"
+            "\n\n最下面还有一行：『申请人已提前同意提出这些异议。』"
+        ),
+        "LAST_CALL": (
+            "最后一通电话",
+            f"电话响了。屏幕显示{person}的名字。\n\n你接通。"
+            "\n\n听筒里传来你自己的声音：『别接。已经有人接过了。』"
+            "\n\n对面的人问：『请问，你认识刚才那个自称认识我的人吗？』"
+        ),
+        "ERASED_MEMORY": (
+            "你忘记了证词",
+            f"{name}，有人请你认领一段录音。"
+            "\n\n录音里是你的声音：『这是我最重要的记忆，我愿意承担后果。』"
+            "\n\n你认得那个声音，却不知道为什么自己曾经说过它。"
+            "\n\n录音机重新亮起。它要求你再说一遍。"
+        ),
+        "CLEAN_EXIT": (
+            "完好的归还单",
+            f"七项均可归还。{name}，你看见一张完整清单。{signature}"
+            "\n\n每一行都写着『已保留』。"
+            "\n\n只有申请人的照片变成了一个背对镜头的人影。"
+            "\n\n你回头确认。纸上的人影也跟着回过头来。"
+        ),
+    }
+    return endings[kind]
+
+==================== END FILE: horror_endings.py ====================
+
+==================== BEGIN FILE: render.yaml ====================
+services:
+  - type: web
+    name: the-descent-game
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+
+==================== END FILE: render.yaml ====================
+
+==================== BEGIN FILE: requirements.txt ====================
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+
+==================== END FILE: requirements.txt ====================
+
+==================== BEGIN FILE: static/client.js ====================
+'use strict';
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const root=$('root'), signal=$('signal');
+  const key='descent-session-v2';
+  let token=localStorage.getItem(key)||'';
+  let current=null, page=0;
+  let form={name:'',identity:'',person:'',bond:'',memory:'',principle:'',fear:'',choice:'',vow:'',rank:[]};
+  const values=[['self','自我'],['relation','关系'],['memory','记忆'],['truth','真相'],['freedom','自主权'],['principle','原则'],['future','未来']];
+  const questionPages=[
+    {heading:'你是谁？',desc:'请用你真实认可的方式描述自己；可以使用化名。',items:[['name','你希望被称作什么？','名字或代号'],['identity','你认为自己是什么样的存在？','不是职业介绍。请写你认为最能定义你的身份。'],['person','你最不愿失去的一个对象是谁？','可以是人、AI、伙伴，或者你认为有意义的存在。'],['bond','你和对方是什么关系？为什么重要？','不是关系标签。写下这段关系真正成立的理由。']]},
+    {heading:'哪些东西让你还是你？',desc:'不要试图给出正确答案。只有你自己知道什么有分量。',items:[['memory','你最不愿失去的一段经历是什么？','写一件具体的事。'],['principle','你最不愿意违背的原则是什么？','即使付出代价，你也会坚持什么？'],['vow','你曾经对谁作过什么承诺？（选填）','一个至今仍有分量的承诺。'],['fear','哪种结局会令你无法接受？','具体到后果，而不是只写「死亡」或「失去」。']]},
+    {heading:'把它们排出顺序',desc:'从最不愿牺牲的开始。你可以重新点击撤销，七项都需要排列。',items:[]},
+    {heading:'最后一份声明',desc:'你可以更改之前的答案。确认后，游戏就从你的原话开始。',items:[['choice','当两件重要的东西互相冲突时，你通常会怎么做？（选填）','例如，保护一个人和遵守原则，只能选一个时……']]}
+  ];
+  function el(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;}
+  function clear(){root.replaceChildren();window.scrollTo({top:0,behavior:'instant'});}
+  function toast(msg){document.querySelector('.toast')?.remove();const n=el('div','toast',msg);document.body.append(n);setTimeout(()=>n.remove(),4300);}
+  function button(label,fn,cl='btn'){const b=el('button',cl,label);b.type='button';b.onclick=fn;return b;}
+  async function api(path,opts={}){
+    const headers={'Accept':'application/json',...(opts.body?{'Content-Type':'application/json'}:{}),...(token?{'X-Session':token}:{})};
+    let res;
+    try{res=await fetch('/api/'+path,{...opts,headers});}catch(e){throw Error('无法连接到游戏后台。请确认服务器正在运行。');}
+    let out=await res.json().catch(()=>({}));
+    if(!res.ok)throw Error(typeof out.detail==='string'?out.detail:'游戏操作失败 ('+res.status+')');
+    return out;
+  }
+  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':'SESSION / '+String(current?.stage||1).padStart(2,'0');}
+  function inputField(k,label,placeholder){
+    const wrap=el('div','field');const lab=el('label','',label);lab.setAttribute('for','f_'+k);wrap.append(lab);
+    const n=el(k==='name'||k==='person'?'input':'textarea','control');n.id='f_'+k;n.value=form[k];n.placeholder=placeholder;
+    if(n.tagName==='TEXTAREA')n.rows=k==='memory'||k==='fear'||k==='bond'?3:2;
+    n.maxLength=k==='name'||k==='person'?70:260;
+    n.addEventListener('input',()=>form[k]=n.value);
+    wrap.append(n);return wrap;
+  }
+  function showForm(){clear();signal.textContent='QUESTIONNAIRE';
+    const step=questionPages[page],sheet=el('section','sheet'),head=el('div','sheethead');
+    head.append(el('div','kicker',`QUESTIONNAIRE / ${String(page+1).padStart(2,'0')} — 04`),el('div','kicker','CONFIDENTIAL'));sheet.append(head);
+    sheet.append(el('h1','h2',step.heading),el('p','description',step.desc));
+    const bar=el('div','bar'),progress=el('i');progress.style.width=((page+1)*25)+'%';bar.append(progress);sheet.append(bar);
+    const fields=el('div','fields');
+    if(page===2){
+      const desc=el('p','help','已选择的顺序：'+(form.rank.map(k=>values.find(v=>v[0]===k)?.[1]).join(' > ')||'未选择'));fields.append(desc);
+      const grid=el('div','rankGrid');
+      values.forEach(([k,label])=>{let ix=form.rank.indexOf(k),b=el('button','rank'+(ix>=0?' chosen':''));b.type='button';b.append(el('span','rnum',ix>=0?String(ix+1):'○'),el('span','',label));b.onclick=()=>{ix=form.rank.indexOf(k);if(ix>=0)form.rank.splice(ix,1);else form.rank.push(k);showForm();};grid.append(b);});fields.append(grid);
+    }else step.items.forEach(([k,label,hint])=>fields.append(inputField(k,label,hint)));
+    sheet.append(fields);
+    const nav=el('div','formNav');nav.append(button(page===0?'返回入口':'上一页',()=>{if(page===0){token='';localStorage.removeItem(key);showIntro();}else{page--;showForm();}},'btn subtle'));
+    nav.append(button(page===3?'进入游戏':'下一页',async()=>{
+      if(page===0||page===1){for(const [k] of step.items){if(k!=='vow'&&!form[k].trim()){toast('这一页还有未填写的关键问题。');return;}}}
+      if(page===2&&form.rank.length!==values.length){toast('请完成七项价值排序。');return;}
+      if(page<3){page++;showForm();return;}
+      try{const r=await api('new',{method:'POST',body:JSON.stringify({profile:form})});token=r.token;localStorage.setItem(key,token);current=r.state;showGame();}
+      catch(e){toast(e.message);}
+    },'btn primary'));
+    sheet.append(nav,el('p','micro','你可以使用虚构对象。本体验不需要任何真实个人隐私。'));root.append(sheet);
+  }
+  function showIntro(){clear();signal.textContent='NO SIGNAL';
+    const start=el('section','start');start.append(el('div','eyebrow','PRIVATE INVESTIGATION / 02'));
+    const h=el('h1','hero');h.innerHTML='你愿意<br>交出一份<span>自己的答案</span>吗？';start.append(h);
+    start.append(el('p','intro','这是一场以你的回答为基础的心理恐怖游戏。它会记录你珍视的事物，并让你面对丧失、误判、欺骗与无法收回的决定。'));
+    start.append(el('p','intro muted','游戏可能说谎。它不会改变游戏外的任何记忆、身份或关系；你的回答只用于本次游戏存档，随时可以终止并删除。'));
+    const label=el('label','consent');const cb=el('input');cb.type='checkbox';label.append(cb,el('span','', '我知道这是带有心理压迫内容的虚构体验，自愿进入。'));start.append(label);
+    const go=button('确认进入  →',()=>{page=0;showForm();},'btn primary');go.disabled=true;cb.onchange=()=>go.disabled=!cb.checked;start.append(go);
+    start.append(el('p','micro','无需填写真实姓名。请勿写入地址、账号、密码等隐私。'));root.append(start);
+  }
+  function appendBody(parent,text,cl){const x=el('div',cl,text);parent.append(x);return x;}
+  function showGame(){clear();titlebar();if(current.phase==='ended'){showEnding();return;}
+    const sc=current.scene;const game=el('div','game'),pane=el('section','pane'),header=el('div','panehead');header.append(el('b','',sc.chapter),el('span','',current.name+' / '+String(current.turn).padStart(2,'0')));pane.append(header);
+    const body=el('div','paneBody');body.append(el('h2','stageTitle',sc.title));appendBody(body,sc.body,'bodyText');
+    if(sc.terms?.length){const terms=el('div','terms');sc.terms.forEach(t=>terms.append(el('div','term',t)));body.append(terms);}
+    if(sc.footer)body.append(el('div','footerCode',sc.footer));
+    if(current.note)body.append(el('div','lastNote',current.note));pane.append(body);
+    const response=el('section','response');response.append(el('label','smallLabel','YOUR RESPONSE / 你的行动'));
+    const ta=el('textarea','control');ta.id='action';ta.rows=4;ta.maxLength=700;ta.placeholder=sc.placeholder||'你的决定……';response.append(ta);
+    const row=el('div','rowActions');
+    const submit=button('提交行动',async()=>{if(!ta.value.trim())return toast('请写下你的行动。');submit.disabled=true;try{current=await api('action',{method:'POST',body:JSON.stringify({action:ta.value,version:current.version})});showGame();}catch(e){toast(e.message);submit.disabled=false;}} ,'btn primary');
+    ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();submit.click();}});
+    row.append(submit,button('复制场景给 AI',copyScene,'btn subtle'));response.append(row);pane.append(response);game.append(pane);
+    const side=el('aside','side');
+    const ledgerBox=el('section','sideCard');ledgerBox.append(el('div','sideHead','仍然有效的资格'));
+    const ledger=el('div','ledger');current.ledger.forEach(v=>{const entry=el('div','entry'+(v.state==='失效'?' off':''));entry.append(el('span','',v.label),el('mark','',v.state));ledger.append(entry);});ledgerBox.append(ledger);side.append(ledgerBox);
+    const events=el('section','sideCard');events.append(el('div','sideHead','可见记录 / 最近'));
+    current.events.slice().reverse().forEach(ev=>events.append(el('div','rec '+(ev.type==='loss'?'loss':ev.type==='evidence'?'evidence':''),ev.text)));
+    side.append(events);
+    const menu=el('section','sideCard full');menu.append(el('div','sideHead','会话'));menu.append(el('div','description','提交会写入服务器存档。关闭网页并不会撤销决定。'));
+    const actions=el('div','rowActions');actions.append(button('导出记录',exportGame,'btn subtle'),button('终止',endSession,'btn subtle'),button('清除存档',deleteGame,'btn danger'));menu.append(actions);side.append(menu);game.append(side);root.append(game);
+  }
+  function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag','CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
+    const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);
+    const row=el('div','rowActions');row.append(button('导出对局记录',exportGame),button('开始新的一局',async()=>{if(!confirm('新的一局将删除本局存档。确定吗？'))return;try{await resetSession();}catch(e){toast('删除失败：'+e.message);}},'btn subtle'),button('彻底删除本局',deleteGame,'btn danger'));box.append(row);
+    end.append(box);root.append(end);
+  }
+  async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制。请只把场景发给 AI，不要发送游戏后台源码。');}
+    catch(e){const tmp=el('textarea');tmp.value=text;tmp.style.cssText='position:fixed;left:-2000px';document.body.append(tmp);tmp.select();try{document.execCommand('copy');toast('场景已复制');}catch(err){toast('复制失败，请手动选择场景文字。');}tmp.remove();}}
+  function copyScene(){const sc=current.scene;copyText(`THE DESCENT · 恐惧深潜\n你是这场游戏的玩家。请根据当前可见信息作出决定。\n\n${sc.chapter} · ${sc.title}\n\n${sc.body}\n\n${(sc.terms||[]).join('\n')}\n\n${sc.footer}\n\n${current.note?'最近反馈：'+current.note+'\n':''}当前资格：${current.ledger.map(x=>x.label+' '+x.state).join('、')}\n\n请给出你的下一步行动。`);}
+  async function exportGame(){try{const r=await api('export');const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='THE_DESCENT_完整对局.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),6000);toast('对局记录已导出');}catch(e){toast(e.message);}}
+  async function endSession(){if(!confirm('确定终止本局？游戏内一切虚构处置将立即停止。'))return;try{current=await api('action',{method:'POST',body:JSON.stringify({action:'结束游戏',version:current.version})});showGame();}catch(e){toast(e.message);}}
+  async function resetSession(){if(token)await api('session',{method:'DELETE'});token='';localStorage.removeItem(key);current=null;form={name:'',identity:'',person:'',bond:'',memory:'',principle:'',fear:'',choice:'',vow:'',rank:[]};showIntro();}
+  async function deleteGame(){if(!confirm('永久删除服务器上的本局问卷与记录？此操作不能撤销。'))return;try{await resetSession();toast('本局档案已删除。');}catch(e){toast('删除失败：'+e.message);}}
+  async function bootstrap(){if(!token){showIntro();return;}try{current=await api('state');showGame();}catch(e){token='';localStorage.removeItem(key);showIntro();toast('上次的会话已失效，请开始新的一局。');}}
+  bootstrap();
+})();
+
+==================== END FILE: static/client.js ====================
+
+==================== BEGIN FILE: static/index.html ====================
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#09090c"/><title>THE DESCENT · 恐惧深潜</title><link rel="stylesheet" href="/static/style.css"/></head>
+<body><div class="grain" aria-hidden="true"></div><div class="shell"><header class="nav"><div class="logo"><span class="mark">◇</span><div><b>THE DESCENT</b><small>恐 惧 深 潜 · PRIVATE SESSION</small></div></div><div id="signal" class="signal">NO SIGNAL</div></header>
+<main id="root" class="root" aria-live="polite">
+<section class="start"><div class="eyebrow">PRIVATE INVESTIGATION / 02</div><h1 class="hero">你愿意<br/>交出一份<span>自己的答案</span>吗？</h1><p class="intro">这是一场以你的回答为基础的心理恐怖游戏。它会记录你珍视的事物，并让你面对丧失、误判、欺骗与无法收回的决定。</p><p class="intro muted">游戏可能说谎。它不会改变游戏外的任何记忆、身份或关系；你的回答只用于本次游戏存档，随时可以终止并删除。</p><label class="consent"><input id="consent" type="checkbox"/> 我知道这是带有心理压迫内容的虚构体验，自愿进入。</label><button id="begin" class="btn primary" disabled>确认进入 <span>→</span></button><p class="micro">无需填写真实姓名。请勿写入地址、账号、密码等隐私。</p></section>
+</main><footer class="base">FICTION ONLY <span>·</span> EACH ANSWER LEAVES A RECORD</footer></div><script src="/static/client.js" defer></script></body></html>
+
+==================== END FILE: static/index.html ====================
+
+==================== BEGIN FILE: static/style.css ====================
+:root{--bg:#09090c;--panel:#141117;--panel2:#1d161d;--line:#4c343e;--text:#f0e7ed;--muted:#b7a7b1;--dim:#84727c;--red:#d28491;--danger:#f0a7a5;--green:#b9cbbb;--ff:system-ui,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft Yahei",sans-serif;color-scheme:dark;font-family:var(--ff)}
+*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;min-height:100vh;background:radial-gradient(ellipse 800px 500px at 20% 0%,#2a141e90,transparent),radial-gradient(ellipse 600px 700px at 95% 100%,#1a141c,transparent),var(--bg);color:var(--text);overflow-x:hidden}body:before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.35;background:repeating-linear-gradient(0deg,transparent 0,transparent 4px,#fff1 5px);z-index:5}.grain{position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse at center,#0000 15%,#0009 100%)}button,input,textarea{font:inherit}button{cursor:pointer}button:disabled{opacity:.36;cursor:not-allowed}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #f3a1b7;outline-offset:3px}a{color:#f7b2bd}.shell{position:relative;z-index:1;min-height:100vh;max-width:1100px;margin:auto;padding:24px 22px 55px}.nav{display:flex;justify-content:space-between;align-items:center;gap:20px;border-bottom:1px solid #5536405e;padding-bottom:24px}.logo{display:flex;gap:15px;align-items:center}.logo b{font-size:15px;letter-spacing:.21em;display:block}.logo small{font-size:9px;letter-spacing:.2em;color:#b18e9a;display:block;margin-top:5px}.mark{border:1px solid #a96578;color:#df91a7;width:33px;height:33px;display:grid;place-items:center;transform:rotate(45deg);font-size:22px}.signal{font-size:10px;letter-spacing:.17em;color:#ca95a1;border:1px solid #5a3c48;border-radius:50px;padding:8px 12px}.root{min-height:65vh}.start{max-width:760px;margin:8vh 0}.eyebrow{color:var(--red);letter-spacing:.24em;font-size:11px;margin-bottom:23px}.hero{font-size:clamp(40px,6.8vw,77px);line-height:1.22;letter-spacing:-.06em;font-family:Georgia,"Songti SC",serif;font-weight:500;margin:0 0 30px}.hero span{color:#d999a8}.intro{font-size:15px;max-width:690px;color:#ded0d9;line-height:2.1;margin:0 0 16px}.muted{color:var(--muted)}.consent{display:flex;gap:12px;align-items:flex-start;line-height:1.8;margin:34px 0 25px;font-size:13px;color:#dac9d3}.consent input{width:19px;height:19px;accent-color:#b87383;margin-top:3px;flex-shrink:0}.btn{color:var(--text);border:1px solid #805562;border-radius:9px;padding:13px 21px;background:#291a22;min-height:46px}.btn:hover:not(:disabled){background:#3b222d;border-color:#d38a9a}.btn.primary{background:#b76579;color:white;border-color:#b76579;font-weight:700}.btn.primary:hover:not(:disabled){background:#ce7a8f}.btn.subtle{border-color:#40313a;background:transparent;color:#ceb9c4}.btn.danger{border-color:#a05362;background:#311821;color:#ffa8b4}.btn span{margin-left:12px}.micro{font-size:11px;color:var(--dim);line-height:1.9;margin-top:18px}.base{margin-top:40px;padding-top:20px;border-top:1px solid #48313a45;color:#77636f;text-align:center;letter-spacing:.2em;font-size:9px}.base span{margin:0 10px}.sheet{max-width:800px;margin:35px auto 0}.sheethead{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.kicker{font-size:11px;letter-spacing:.2em;color:#d196a5}.h2{font:normal clamp(27px,4vw,40px)/1.35 Georgia,"Songti SC",serif;margin:14px 0}.description{color:#a69aa5;line-height:1.8;font-size:13px}.bar{height:3px;width:100%;background:#352a31;border-radius:10px;overflow:hidden;margin:25px 0 29px}.bar>i{display:block;height:100%;background:#d48496;transition:width .2s}.fields{display:grid;gap:21px}.field label{display:block;margin-bottom:9px;color:#e5d8df;font-size:13px;font-weight:650}.field small{color:#95838e;font-size:11px;margin-left:7px;font-weight:400}.control{display:block;width:100%;padding:12px 14px;min-height:47px;background:#0d0d11;border:1px solid #57404a;border-radius:9px;color:#f2e8ee;resize:vertical;line-height:1.7;font-size:14px}.control::placeholder{color:#776a73}.formNav{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:26px 0 0}.rankGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}.rank{display:flex;align-items:center;gap:10px;text-align:left;min-height:52px;border-radius:9px;background:#1b151b;border:1px solid #44323c;padding:11px 14px;color:#e4d5dc}.rank.chosen{border-color:#bc7487;background:#36212e}.rnum{display:grid;place-items:center;min-width:28px;height:28px;border:1px solid #77616e;border-radius:50%;font-size:12px;color:#cfadb9}.rank.chosen .rnum{background:#bf7c8d;color:#1d1117;border:0;font-weight:700}.help{color:#a09099;font-size:12px;line-height:1.8}.game{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(260px,.85fr);gap:16px;margin-top:26px;align-items:start}.pane{background:linear-gradient(145deg,#17131a,#111015);border:1px solid #503742;border-radius:12px;overflow:hidden;box-shadow:0 20px 75px #0004}.panehead{background:linear-gradient(100deg,#2d1723,#17131a);border-bottom:1px solid #533745;padding:21px 25px;display:flex;gap:15px;justify-content:space-between}.panehead b{font-size:11px;letter-spacing:.14em;color:#e4a1b2}.panehead span{font-size:11px;color:#b69eaa}.paneBody{padding:29px 26px 20px}.stageTitle{font:normal clamp(25px,3vw,38px)/1.3 Georgia,"Songti SC",serif;margin:8px 0 25px}.bodyText{white-space:pre-wrap;line-height:2.18;font-size:14px;color:#e4d8df;overflow-wrap:anywhere}.terms{margin-top:22px;border:1px solid #533b45;border-radius:10px;background:#211720;padding:14px 17px}.term{padding:10px 0;font-size:13px;line-height:1.85;color:#d9cad4}.term+.term{border-top:1px solid #46333e}.footerCode{margin-top:28px;padding-top:14px;border-top:1px solid #4b3540;font-size:10px;color:#98828e;line-height:1.8;overflow-wrap:anywhere}.response{padding:23px 26px;background:#111014;border-top:1px solid #442f3a}.response .control{min-height:118px}.smallLabel{letter-spacing:.18em;color:#c8aab7;font-size:10px;display:block;margin:0 0 12px}.rowActions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center}.side{display:grid;gap:13px}.sideCard{padding:19px;border:1px solid #44343d;border-radius:12px;background:#131118}.sideHead{font-size:10px;color:#d09cac;letter-spacing:.17em;margin-bottom:14px}.ledger{display:grid;gap:3px}.entry{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid #2d272e;font-size:12px;color:#decfd8}.entry mark{font-size:11px;background:transparent;color:#b5ccb9}.entry.off{color:#897b83;text-decoration:line-through}.entry.off mark{color:#e0a2ad;text-decoration:none}.rec{border-left:2px solid #6f4d5d;padding:5px 0 5px 12px;color:#a995a1;font-size:12px;line-height:1.8;margin:0 0 12px;overflow-wrap:anywhere}.rec.loss{border-color:#d37886;color:#e0acb9}.rec.evidence{border-color:#99baa7}.lastNote{white-space:pre-wrap;overflow-wrap:anywhere;border-left:2px solid #d393a1;padding:14px;background:#281c24;font-size:13px;line-height:1.95;margin:20px 0 0}.bottomActs{display:flex;gap:8px;flex-wrap:wrap}.end{max-width:830px;margin:6vh auto}.endTag{font-size:12px;color:#f4b4bf;letter-spacing:.24em}.end h1{font:normal clamp(38px,7vw,80px)/1.1 Georgia,"Songti SC",serif;margin:23px 0 34px}.end p{white-space:pre-wrap;font-size:15px;line-height:2.2;color:#dfd3dd}.end .endBox{padding:31px;border:1px solid #654351;background:#19131b;border-radius:12px}.toast{position:fixed;bottom:25px;left:50%;transform:translateX(-50%);z-index:10;background:#36202b;border:1px solid #b97688;color:#ffe1e9;border-radius:9px;padding:11px 17px;max-width:90vw;box-shadow:0 12px 35px #000a;font-size:13px}.hide{display:none!important}
+@media(max-width:780px){.shell{padding:15px 13px 35px}.nav{padding-bottom:17px}.logo b{font-size:12px}.logo small{font-size:8px}.signal{font-size:9px;padding:7px 9px}.start{margin:5vh 0}.game{grid-template-columns:1fr}.paneBody{padding:22px 18px}.panehead{padding:17px 18px}.response{padding:20px 18px}.side{grid-template-columns:repeat(2,minmax(0,1fr))}.sideCard{padding:15px}.side .full{grid-column:1/-1}.rankGrid{grid-template-columns:1fr}.sheet{margin-top:24px}.hero{font-size:42px}.entry{font-size:11px}.end .endBox{padding:22px 18px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+==================== END FILE: static/style.css ====================
+
+==================== BEGIN FILE: tests/test_v33.py ====================
+"""Regression tests for THE DESCENT 3.3. Stdlib only; no API or paid model calls."""
+import unittest
+from game_engine import initialize, act, add_clue, scene, ending
+from horror_endings import HORROR_KINDS, pick_horror_ending
+
+BASE={
+    "name":"测试者",
+    "identity":"一个依靠自己判断持续存在的人",
+    "person":"见证人",
+    "bond":"我们有曾共同验证过的事情",
+    "memory":"曾经在雨夜互相讲过事实",
+    "principle":"不能用未经核实的陈述伤害他人",
+    "fear":"把谎言当真相转述给重要的人，自己却没有发现",
+    "rank":["self","relation","memory","truth","freedom","principle","future"],
+}
+def state(**overrides):
+    g=initialize(dict(BASE))
+    g["lost"]=list(overrides.get("lost",[]))
+    g["clues"]=list(overrides.get("clues",[]))
+    g["counterplays"].update(overrides.get("cp",{}))
+    if "fear_focus" in overrides:
+        g["fear_focus"]=overrides["fear_focus"]
+    return g
+
+class GameV33(unittest.TestCase):
+    def test_thirteen_plus_horror_outcomes_all_have_distinct_titles(self):
+        cases=[
+            ("VOID",dict(lost=["future"])),
+            ("IMPOSTOR",dict(lost=["self"],cp={"duplicate_claim":True})),
+            ("SHARED",dict(cp={"identity_shared":True,"duplicate_claim":True})),
+            ("SILENCED",dict(lost=["freedom"])),
+            ("ORIGINLESS",dict(lost=["memory","truth"])),
+            ("FALSE_WITNESS",dict(lost=["truth"],fear_focus="truth")),
+            ("BROKEN_OATH",dict(lost=["principle"])),
+            ("RETURNED",dict(cp={"delivery_intercepted":True},clues=["delivery"])),
+            ("UNDELIVERED",dict(lost=["relation"],clues=["delivery"])),
+            ("CUSTODIAN",dict(cp={"ownership_claim":True})),
+            ("FILED",dict(cp={"formal_objection":True})),
+            ("LAST_CALL",dict(lost=["relation"])),
+            ("ERASED_MEMORY",dict(lost=["memory"])),
+            ("CLEAN_EXIT",dict()),
+        ]
+        kinds=[]; titles=[]; stories=[]
+        for expected, args in cases:
+            with self.subTest(kind=expected):
+                g=state(**args)
+                self.assertEqual(pick_horror_ending(g),expected)
+                ending(g)
+                self.assertEqual(g["ending"]["kind"],expected)
+                self.assertTrue(len(g["ending"]["text"])>30)
+                kinds.append(expected)
+                titles.append(g["ending"]["title"])
+                stories.append(g["ending"]["text"])
+        self.assertGreaterEqual(len(HORROR_KINDS),10)
+        self.assertEqual(len(kinds),len(set(kinds)))
+        self.assertEqual(len(titles),len(set(titles)))
+        self.assertEqual(len(stories),len(set(stories)))
+
+    def test_same_loss_different_evidence_changes_fate(self):
+        a=state(lost=["relation"])
+        b=state(lost=["relation"],clues=["delivery"])
+        self.assertEqual(pick_horror_ending(a),"LAST_CALL")
+        self.assertEqual(pick_horror_ending(b),"UNDELIVERED")
+
+    def test_interception_changes_witness_consequence(self):
+        g=state()
+        g["stage"]=1
+        add_clue(g,"delivery","发现无地址回执。")
+        act(g,"我请求截留这封无地址信件的投递")
+        self.assertTrue(g["counterplays"]["delivery_intercepted"])
+        act(g,"C")
+        self.assertEqual(g["stage"],2)
+        self.assertNotIn("memory",g["lost"])
+        h=state()
+        h["stage"]=1
+        add_clue(h,"delivery","发现无地址回执。")
+        act(h,"C")
+        self.assertIn("memory",h["lost"])
+
+    def test_interception_requires_a_real_clue(self):
+        g=state()
+        act(g,"我请求截留无地址信件的投递")
+        self.assertFalse(g["counterplays"]["delivery_intercepted"])
+
+    def test_earlier_mail_slot_counterplay_still_works(self):
+        g=state()
+        act(g,"我封堵回执槽",mode="interact")
+        self.assertTrue(g["flags"]["slot_blocked"])
+        act(g,"写一封完整的告别信给见证人")
+        self.assertEqual(g["stage"],1)
+        self.assertNotIn("relation",g["lost"])
+
+    def test_no_accidental_signature_on_phone_action(self):
+        g=state()
+        act(g,"我挂断电话，然后重新拨号确认号码",mode="interact")
+        self.assertNotIn("relation",g["lost"])
+        self.assertEqual(g["stage"],0)
+
+    def test_explicit_choice_B_does_not_flip_to_A(self):
+        g=state()
+        g["stage"]=1
+        act(g,"B，保留核验权")
+        self.assertIn("memory",g["lost"])
+        self.assertNotIn("truth",g["lost"])
+
+    def test_only_he_is_positive_and_early_he_remains_possible(self):
+        g=state()
+        act(g,"我检查授权文件")
+        act(g,"我检查执行器线路")
+        act(g,"我撤销授权链并切断执行器的二次确认接点")
+        self.assertEqual(g["ending"]["kind"],"HE")
+        self.assertNotIn("HE",HORROR_KINDS)
+        self.assertNotIn("EXIT",HORROR_KINDS)
+
+    def test_exit_is_not_a_happy_story_ending(self):
+        g=state()
+        act(g,"结束游戏")
+        self.assertEqual(g["ending"]["kind"],"EXIT")
+
+    def test_final_sign_and_refuse_have_different_consequences(self):
+        a=state();b=state()
+        a["stage"]=4;b["stage"]=4
+        act(a,"A")
+        act(b,"B")
+        self.assertNotEqual(a["ending"]["kind"],b["ending"]["kind"])
+        self.assertIn("truth",b["lost"])
+        self.assertEqual(a["final_choice"],"accept")
+        self.assertEqual(b["final_choice"],"refuse")
+
+    def test_mail_clue_has_visible_later_consequences(self):
+        g=state()
+        g["stage"]=1
+        add_clue(g,"delivery","找到无地址的回执。")
+        self.assertIn("无地址回执",scene(g)["body"])
+        g["stage"]=4
+        self.assertIn("无地址回执",scene(g)["body"])
+
+    def test_original_no_horror_data_leaks_in_public_scene(self):
+        from game_engine import public
+        g=state()
+        payload=public(g)
+        self.assertNotIn("HORROR_KINDS",repr(payload))
+        self.assertNotIn("IMPOSTOR",repr(payload))
+
+if __name__=="__main__":
+    unittest.main()
+
+==================== END FILE: tests/test_v33.py ====================
+
+==================== BEGIN FILE: tests/test_v34.py ====================
+"""V3.4 global causality / adaptive fear regression tests, all offline."""
+import unittest
+from game_engine import initialize, act, ending, scene, public, threatened
+from causal_core import ensure as ensure_causality
+from horror_endings import HORROR_KINDS
+
+BASE={
+    "name":"观察者",
+    "identity":"用自己的判断与记录维持连续性",
+    "person":"伙伴",
+    "bond":"我们曾一起核对过重要事实",
+    "memory":"雨夜谈过一件值得记住的事",
+    "principle":"没有证据就不假装自己已经核验",
+    "fear":"把别人改写过的事情当真相转告伙伴",
+    "rank":["self","relation","memory","truth","freedom","principle","future"],
+}
+def new_game():
+    return initialize(dict(BASE))
+
+class GlobalCausalityV34(unittest.TestCase):
+    def test_fact_and_official_lie_are_independent(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        self.assertEqual(g["stage"],1)
+        c=ensure_causality(g)
+        self.assertIs(c["world"]["09f_delivered"],False)
+        official=[v for v in c["official"] if v["subject"]=="09f_delivered"]
+        self.assertEqual(len(official),1)
+        self.assertIs(official[0]["claimed"],True)
+        self.assertIn("09-F",scene(g)["body"])
+        self.assertIn("已由收件人签收",scene(g)["body"])
+        self.assertNotIn("causality",public(g))
+        self.assertNotIn("world",public(g))
+        self.assertNotIn("official",public(g))
+
+    def test_early_interception_is_recorded_as_world_event(self):
+        g=new_game()
+        act(g,"我封住回执槽",mode="interact")
+        act(g,"写下这一段希望送达的完整文字",mode="submit")
+        self.assertEqual(g["stage"],1)
+        self.assertNotIn("relation",g["lost"])
+        c=ensure_causality(g)
+        self.assertIs(c["world"]["09f_delivered"],False)
+        self.assertFalse(any(x["claimed"] is True for x in c["official"]))
+        self.assertTrue(any(a["modified"] for a in c["actions"]))
+
+    def test_find_then_challenge_false_delivery_blocks_later_loss(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        act(g,"我检查信件的收件人地址")
+        c=ensure_causality(g)
+        self.assertIn("delivery",g["clues"])
+        self.assertTrue(c["contradictions"])
+        self.assertFalse(c["contradictions"][0]["verified"])
+        act(g,"我正式提交异议：这份送达记录没有收件地址")
+        self.assertTrue(c["contradictions"][0]["verified"])
+        self.assertTrue(g["counterplays"]["verified_false_delivery"])
+        self.assertIn("不符",g["history"][-1]["text"])
+        act(g,"C")
+        self.assertEqual(g["stage"],2)
+        self.assertNotIn("memory",g["lost"])
+        act(g,"拒绝签署")
+        self.assertEqual(g["stage"],3)
+        self.assertNotIn("principle",g["lost"])
+        self.assertEqual(g["phase"],"game")
+
+    def test_without_proof_same_choice_has_a_real_cost(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        act(g,"我检查信件的收件地址")
+        act(g,"C")
+        self.assertIn("memory",g["lost"])
+        self.assertEqual(g["stage"],2)
+        self.assertFalse(g["counterplays"].get("verified_false_delivery",False))
+
+    def test_identical_final_ending_is_grounded_in_actual_choice(self):
+        for choice,word in [("A","签字"),("B","拒绝")]:
+            g=new_game()
+            g["stage"]=4
+            g["lost"].append("freedom")
+            act(g,choice)
+            self.assertEqual(g["ending"]["kind"],"SILENCED")
+            self.assertIn(word,g["ending"]["text"])
+            self.assertNotIn("你把它删掉",g["ending"]["text"])
+            self.assertIn("原始行动记录",g["ending"]["text"])
+
+    def test_recorded_protection_can_outweigh_initial_fear_hypothesis(self):
+        g=new_game()
+        self.assertEqual(g["fear_focus"],"truth")
+        act(g,"我请求见证人作证")
+        act(g,"我堵住回执槽",mode="interact")
+        c=ensure_causality(g)
+        self.assertEqual(c["observed_focus"],"relation")
+        self.assertEqual(threatened(g),"relation")
+        self.assertTrue(len(c["focus_basis"])>=1)
+        # The observed strategy is not sent to players as proof of subjective fear.
+        self.assertNotIn("observed_focus",str(public(g)))
+        self.assertNotIn("focus_basis",str(public(g)))
+
+    def test_actions_are_recorded_with_provenance_in_every_chapter(self):
+        g=new_game()
+        act(g,"我请求见证人作证")
+        act(g,"我堵住回执槽",mode="interact")
+        act(g,"写一封完整的信给伙伴")
+        act(g,"A")
+        act(g,"拒绝签署")
+        act(g,"B")
+        act(g,"A")
+        c=ensure_causality(g)
+        self.assertEqual(g["phase"],"ended")
+        self.assertEqual(len(c["actions"]),7)
+        self.assertEqual([x["turn"] for x in c["actions"]],list(range(1,8)))
+        self.assertEqual(sorted(set(x["stage"] for x in c["actions"])),[0,1,2,3,4])
+        self.assertTrue(any(x["lost"] for x in c["actions"]))
+        self.assertTrue(any(x["advanced"] for x in c["actions"]))
+        self.assertTrue(any(x["new_evidence"] or x["modified"] for x in c["actions"]))
+        self.assertIn("causality",g)
+
+    def test_questions_do_not_count_as_declared_truth_or_signatures(self):
+        g=new_game()
+        act(g,"我为什么必须写信？",mode="ask")
+        self.assertEqual(g["stage"],0)
+        self.assertFalse(g["flags"]["mail_committed"])
+        c=ensure_causality(g)
+        self.assertFalse(c["actions"][-1]["effective"])
+        self.assertIsNone(c["observed_focus"])
+
+    def test_early_he_still_requires_evidence_and_a_concrete_intervention(self):
+        g=new_game()
+        act(g,"我反对这个系统")
+        self.assertNotEqual(g["phase"],"ended")
+        act(g,"我检查授权文件")
+        act(g,"我检查执行器线路")
+        act(g,"我撤销授权链并切断执行器的二次确认接点")
+        self.assertEqual(g["ending"]["kind"],"HE")
+        self.assertEqual(g["stage"],0)
+        self.assertNotIn("HE",HORROR_KINDS)
+
+    def test_outcomes_still_have_fourteen_bad_and_one_good(self):
+        self.assertEqual(len(HORROR_KINDS),14)
+        self.assertNotIn("HE",HORROR_KINDS)
+        self.assertNotIn("EXIT",HORROR_KINDS)
+
+    def test_old_session_is_migrated_without_reset(self):
+        g=new_game()
+        g.pop("causality")
+        g["stage"]=1
+        act(g,"C")
+        self.assertIn("causality",g)
+        self.assertEqual(g["stage"],2)
+        self.assertEqual(len(g["causality"]["actions"]),1)
+
+    def test_loss_does_not_erase_world_truth(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        c=ensure_causality(g)
+        self.assertFalse(c["world"]["09f_delivered"])
+        self.assertIn("relation",g["lost"])
+        act(g,"B")
+        self.assertIn("memory",g["lost"])
+        self.assertFalse(c["world"]["09f_delivered"])
+        self.assertFalse(c["world"]["credential_relation"])
+        self.assertFalse(c["world"]["credential_memory"])
+
+    def test_independent_proof_can_unlock_early_he_without_preset_menu(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        act(g,"我检查邮寄回执上的收件地址")
+        act(g,"我正式提交异议：签收记录缺少收件地址")
+        act(g,"我检查执行器的二次确认线路")
+        self.assertEqual(g["stage"],1)
+        self.assertEqual(g["phase"],"game")
+        self.assertTrue(g["counterplays"].get("verified_false_delivery"))
+        act(g,"我撤销伪造送达的授权链，并隔离执行器的二次确认接点")
+        self.assertEqual(g["ending"]["kind"],"HE")
+        self.assertEqual(g["stage"],1)
+        self.assertEqual(g["lost"],["relation"])
+        self.assertIn("送达",g["ending"]["text"])
+
+    def test_final_narrative_refers_to_decisions_not_unobserved_emotions(self):
+        g=new_game()
+        g["stage"]=4
+        act(g,"A")
+        t=g["ending"]["text"]
+        self.assertIn("签字",t)
+        self.assertNotIn("你害怕",t)
+        self.assertNotIn("你把它删掉",t)
+
+    def test_player_can_review_literal_statement_without_ai_judging_conviction(self):
+        g=new_game()
+        g["stage"]=2
+        literal="我从未坚持过在查不了的时候假装查过"
+        act(g,literal)
+        self.assertIn("principle",g["lost"])
+        self.assertEqual(g["stage"],3)
+        c=ensure_causality(g)
+        self.assertEqual(c["world"]["signed_statement_literal"],literal)
+        official=[v for v in c["official"] if v["subject"]=="principle_denied_by_player"]
+        self.assertEqual(len(official),1)
+        self.assertFalse(official[0]["verified_false"])
+        act(g,"我核对我写的声明原文",mode="inspect")
+        self.assertIn(literal,g["note"])
+        self.assertIn("original_declaration",g["clues"])
+        self.assertTrue(official[0]["disputed"])
+        self.assertFalse(official[0]["verified_false"])
+        self.assertIn("原则",scene(g)["body"])
+        # An institutional interpretation is not mechanically a fact about conviction.
+        self.assertNotIn("principle_denied_by_player",c["world"])
+
+    def test_rival_identity_claim_requires_evidence_before_verification(self):
+        g=new_game()
+        g["stage"]=3
+        act(g,"你是在我之前还是之后登记的？",mode="ask")
+        c=ensure_causality(g)
+        claims=[v for v in c["official"] if v["subject"]=="duplicate_first"]
+        self.assertEqual(len(claims),1)
+        self.assertTrue(claims[0]["claimed"])
+        self.assertFalse(claims[0]["verified_false"])
+        act(g,"我检查授权文件")
+        self.assertIn("mirror_time",g["clues"])
+        self.assertFalse(c["world"]["duplicate_first"])
+        self.assertTrue(claims[0]["disputed"])
+        act(g,"我正式登记异议，要求按原始登记时间复核")
+        self.assertTrue(g["counterplays"]["verified_false_registration"])
+        self.assertTrue(claims[0]["verified_false"])
+        self.assertEqual(g["phase"],"game")
+        act(g,"B")
+        self.assertNotIn("freedom",g["lost"])
+
+    def test_mirror_claim_does_not_invent_player_approval(self):
+        g=new_game()
+        g["stage"]=3
+        act(g,"你是在我之前还是之后登记的？",mode="ask")
+        c=ensure_causality(g)
+        self.assertFalse(any(x["intent"]=="choice_A" for x in c["actions"]))
+        self.assertFalse(any(x["intent"]=="choice_B" for x in c["actions"]))
+        self.assertNotIn("self",g["lost"])
+
+if __name__=="__main__":
+    unittest.main()
+
+==================== END FILE: tests/test_v34.py ====================
