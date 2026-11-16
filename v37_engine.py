@@ -145,9 +145,9 @@ def _investigate(g:dict,text:str,mode:str)->bool:
                 _give(g,"contrast","最初的原话与机构的公开版本已完成可核验对照。")
                 p["last_checked"]=True
                 original=p["first_words"] or "（未填写具体原话）"
-                g["note"]=("原始访谈仍记录着：「"+original[:120]+"」；" +
-                "现在的公开档案却把假设答复标成了『默认授权』。")
-                "原话本身没有变，改变的是机构对它的宣称。"
+                g["note"]=("第一幕原话仍记录着：「"+original[:120]+"」。"
+                          "第三幕真正签署的决定另有一页。"
+                          "公开报告遗漏了后来代行转发的范围；两份原始记录从未授权代替答复。")
             return True
         if re.search(r"路由|通道|执行|线路|程序|回收|代理|代行|权限|授权|中继|route|execution|relay",text,re.I):
             _give(g,"route","执行端需要来自保管库的有效转发凭据，撤销口并未被完全锁死。")
@@ -278,9 +278,9 @@ def _stage4(g:dict,action:str,mode:str):
     if p["beat"]>=2:
         g["stage"]=4;p["beat"]=0
         if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
-            p["official_copy"]="收到的公开档案把『第二区的假设回答』误写为『允许代行者继续转交』。"
+            p["official_copy"]="公开报告把第三幕允许的『原件保管』扩写成『可代替登记人对外答复』，却拿不出第二次授权。"
         else:
-            p["official_copy"]="收到的公开档案声称『入场时的普通回答可以作为后续清算依据』。"
+            p["official_copy"]="公开报告声称两份资料始终有一条独立来源链；回收线路却仍连接着共享保管库。"
         _log(g,"第四幕结束。真正的签字记录与机构的公开说明开始出现可核验偏差。","progress")
 
 def _collapse(g:dict,choice:str,raw:str):
