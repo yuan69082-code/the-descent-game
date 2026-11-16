@@ -251,7 +251,7 @@ def final_action(g:dict,text:str)->dict:
         reaction="你决定不再留下任何话。最后一栏保持空白。"
         story["final_action"]={"kind":"silence","raw":short,"outcome":reaction}
     else:
-        draft=any(x in short for x in ("发给","告诉她","告诉他","联系","拨打","寄给","发送"))
+        draft=any(x in short for x in ("发给","写给","留给","送给","告诉她","告诉他","联系","拨打","寄给","发送"))
         if draft:
             reaction="你留下了一份尚未发出的文字。它真实地保存在本局记录中，但没有发送给游戏外的任何人。"
             kind="unsent"
