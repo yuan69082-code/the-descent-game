@@ -6,6 +6,7 @@ on:
       - v3-4-global-causality
       - main
       - v3-5-system-overhaul
+      - v3-6-causal-pressure-repair
       - v3-4-author-afterword
   workflow_dispatch:
 jobs:
