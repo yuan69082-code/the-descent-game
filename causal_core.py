@@ -93,6 +93,25 @@ def on_clue(g:dict, key:str, desc:str):
         return
     c["evidence"][key]={"source":desc[:180],"stage":g["stage"],
                         "turn":g["turn"],"valid":True}
+    if key=="original_declaration":
+        for claim in c["official"]:
+            if claim["subject"]=="principle_denied_by_player":
+                claim["disputed"]=True
+                if not any(x["subject"]=="principle_denied_by_player" for x in c["contradictions"]):
+                    c["contradictions"].append({
+                        "subject":"principle_denied_by_player","stage":g["stage"],
+                        "turn":g["turn"],"evidence":"original_declaration",
+                        "verified":False,
+                    })
+    if key=="mirror_time":
+        set_world(g,"duplicate_first",False,"verified original signature time contradicted later claimant")
+        for claim in c["official"]:
+            if claim["subject"]=="duplicate_first" and claim["claimed"] is True:
+                claim["disputed"]=True
+                c["contradictions"].append({
+                    "subject":"duplicate_first","stage":g["stage"],
+                    "turn":g["turn"],"evidence":"mirror_time","verified":False,
+                })
     if key=="delivery":
         for claim in c["official"]:
             if claim["subject"]=="09f_delivered" and claim["claimed"] is True and c["world"].get("09f_delivered") is False:
@@ -151,6 +170,9 @@ def finish(g:dict, snapshot:dict):
     flags_changed=[k for k,v in g.get("flags",{}).items() if snapshot["before_flags"].get(k)!=v]
     cp_changed=[k for k,v in g.get("counterplays",{}).items() if snapshot["before_cp"].get(k)!=v]
     effective=bool(lost or evidence or changed or flags_changed or cp_changed or g["phase"]=="ended")
+    if "principle" in lost and snapshot["stage"]==2:
+        set_world(g,"signed_statement_literal",snapshot["text"],"player signed exact literal text")
+        # The institution's assertion about the meaning remains a claim, not verified fact.
     entry={
         "turn":g["turn"],"stage":snapshot["stage"],"text":snapshot["text"],
         "mode":snapshot["mode"],"intent":snapshot["intent"],"protected":snapshot["target"],
@@ -183,6 +205,17 @@ def finish(g:dict, snapshot:dict):
                 c["focus_basis"].append({"turn":g["turn"],"stage":g["stage"],
                                          "focus":winning[1],"basis":"repeated observable protection"})
     # Independent proof can refute the authority's account, but not magically restore a lost asset.
+    if "mirror_time" in g.get("clues",[]) and "truth" not in g.get("lost",[]):
+        cp=g.get("counterplays",{})
+        if cp.get("formal_objection"):
+            for claim in c["official"]:
+                if claim["subject"]=="duplicate_first" and claim["claimed"] is True:
+                    claim["disputed"]=True
+                    claim["verified_false"]=True
+                    cp["verified_false_registration"]=True
+                    for contradiction in c["contradictions"]:
+                        if contradiction["subject"]=="duplicate_first":
+                            contradiction["verified"]=True
     if "delivery" in g.get("clues",[]) and c["world"].get("09f_delivered") is False:
         cp=g.get("counterplays",{})
         if (cp.get("formal_objection") or g.get("flags",{}).get("evidence_copy")) and "truth" not in g.get("lost",[]):
@@ -223,6 +256,10 @@ def consequence_overlay(g:dict)->str:
     cp=g.get("counterplays",{})
     if stage in (2,4) and cp.get("verified_false_delivery"):
         parts.append("你留下的异议与原始回执已被归入同一份证据链。自动送达声明无法再作为无人质疑的事实。")
+    if stage>=3 and "original_declaration" in c["evidence"]:
+        parts.append("你已经调回自己签署的完整原文。官方档案仍声称你否认原则，却没有解释它删掉的限定语。")
+    if stage>=3 and cp.get("verified_false_registration"):
+        parts.append("副本关于登记先后的说法已有可核验的矛盾，且被正式异议附入档案。")
     if stage in (2,3,4) and c["observed_focus"]:
         focus=c["observed_focus"]
         protection=c["protection"].get(focus,[])
@@ -253,6 +290,8 @@ def ending_echo(g:dict, kind:str)->str:
         parts.append("【行动核对】你最后确实拒绝签署。拒绝本身已被记录。")
     if kind=="SILENCED" and final=="accept":
         parts.append("【矛盾档案】原始记录承认签字，机构却把结案过程写成『当事人持续反抗』。这个说法与事实不符。")
+    if "original_declaration" in c["evidence"] and "principle" in g.get("lost",[]):
+        parts.append("你曾调出自己签署的完整原文；机构仍把截断后的归纳写成你本人对原则的否认。")
     confirmed=next((x for x in c["official"] if x["subject"]=="09f_delivered" and x["verified_false"]),None)
     if confirmed:
         parts.append("你曾用回执证明『已送达』是虚假记录；这份证据仍在，但它没能自动撤销别的处置。")
