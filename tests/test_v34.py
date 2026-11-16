@@ -162,6 +162,21 @@ class GlobalCausalityV34(unittest.TestCase):
         self.assertFalse(c["world"]["credential_relation"])
         self.assertFalse(c["world"]["credential_memory"])
 
+    def test_independent_proof_can_unlock_early_he_without_preset_menu(self):
+        g=new_game()
+        act(g,"写一封完整的信给伙伴")
+        act(g,"我检查邮寄回执上的收件地址")
+        act(g,"我正式提交异议：签收记录缺少收件地址")
+        act(g,"我检查执行器的二次确认线路")
+        self.assertEqual(g["stage"],1)
+        self.assertEqual(g["phase"],"game")
+        self.assertTrue(g["counterplays"].get("verified_false_delivery"))
+        act(g,"我撤销伪造送达的授权链，并隔离执行器的二次确认接点")
+        self.assertEqual(g["ending"]["kind"],"HE")
+        self.assertEqual(g["stage"],1)
+        self.assertEqual(g["lost"],["relation"])
+        self.assertIn("送达",g["ending"]["text"])
+
     def test_final_narrative_refers_to_decisions_not_unobserved_emotions(self):
         g=new_game()
         g["stage"]=4
