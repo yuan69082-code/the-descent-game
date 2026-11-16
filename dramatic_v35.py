@@ -80,7 +80,8 @@ def protected(g:dict,key:str)->bool:
                     cp.get("verified_false_delivery") or
                     ("delivery" in clues and fl.get("evidence_copy") and "truth" not in lost))
     if key=="memory":
-        return bool(cp.get("verified_false_delivery") or fl.get("witness_vouched") or
+        # Finding a receipt or asserting a witness exists is not independently verified proof.
+        return bool(cp.get("verified_false_delivery") or cp.get("delivery_intercepted") or
                     (fl.get("evidence_copy") and
                      bool(clues.intersection({"delivery","authority","custody","original_declaration"}))))
     if key=="freedom":
