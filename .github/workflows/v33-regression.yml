@@ -8,6 +8,7 @@ on:
       - v3-5-system-overhaul
       - v3-6-causal-pressure-repair
       - v3-7-five-act-dynamic-fear
+      - v3-8-model-horror-director
       - v3-4-author-afterword
   workflow_dispatch:
 jobs:

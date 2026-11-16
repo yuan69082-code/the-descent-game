@@ -84,12 +84,17 @@ def index():
 
 @app.get("/healthz")
 def health():
-    return {"ok":True,"name":"THE DESCENT","version":"3.7"}
+    from horror_director import configured
+    return {"ok":True,"name":"THE DESCENT","version":"3.8",
+            "model_configured":configured()}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):
     try:g=initialize(payload.profile)
     except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
+    if g.get("edition")=="v38":
+        from horror_director import render
+        render(g)
     token=secrets.token_urlsafe(32)
     with db(True) as conn:
         # Expire old sessions after 14 days; nothing is transmitted to analytics.
@@ -107,14 +112,28 @@ def state(x_session:str=Header(default="")):
 @app.post("/api/action")
 def action(payload:Action,x_session:str=Header(default="")):
     if len(payload.action)>700:raise HTTPException(status_code=422,detail="单次行动最多 700 字。")
-    with db(True) as conn:
+    with db() as conn:
         g,version=get_session(conn,x_session)
-        if version!=payload.version:
-            raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
-        try:act(g,payload.action,payload.mode)
-        except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
-        conn.execute("UPDATE game_sessions SET state_json=?,updated_at=?,version=? WHERE token_hash=?",
-                (json.dumps(g,ensure_ascii=False),time.time(),version+1,token_key(x_session)))
+    if version!=payload.version:
+        raise HTTPException(status_code=409,detail="对局已经更新，请刷新当前场景后再提交。")
+    action_text,action_mode=payload.action,payload.mode
+    if g.get("edition")=="v38":
+        from horror_director import interpret,render
+        action_text,action_mode=interpret(g,action_text,action_mode)
+    try:act(g,action_text,action_mode)
+    except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
+    if g.get("edition")=="v38":
+        render(g)
+    # Never hold a SQLite write lock while awaiting a paid model response.
+    # Conditional update rejects a second concurrent decision for the same version.
+    with db(True) as conn:
+        updated=conn.execute(
+            "UPDATE game_sessions SET state_json=?,updated_at=?,version=? "
+            "WHERE token_hash=? AND version=?",
+            (json.dumps(g,ensure_ascii=False),time.time(),version+1,
+             token_key(x_session),version))
+        if updated.rowcount!=1:
+            raise HTTPException(status_code=409,detail="这一轮已被其他请求更新；请刷新对局。")
     return api_response(g,version+1)
 
 @app.get("/api/export")
@@ -122,12 +141,15 @@ def export(x_session:str=Header(default="")):
     with db() as conn:g,_=get_session(conn,x_session)
     # Full transcript for the player, including private questionnaire, but not private scoring/rules.
     out={"name":g["profile"]["name"],"questionnaire":g["profile"],"lost":g["lost"],"events":g["history"],"ending":g["ending"]}
-    if g.get("edition")=="v37":
+    if g.get("edition") in ("v37","v38"):
         story=g["psych"]
         out["experience"]={"interview":story.get("answers",[]),"hypotheticals":story.get("probes",[]),
                            "real_choices":story.get("choices",[]),"consequences":story.get("consequences",[]),
                            "proof":story.get("proof",[]),"cost":story.get("cost"),
                            "first_words":story.get("first_words",""),"final_action":story.get("last_action")}
+        if g.get("edition")=="v38":
+            out["narrative"]={"mode":g.get("director",{}).get("mode","rules"),
+                              "scene":g.get("director",{}).get("scene")}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),

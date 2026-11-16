@@ -522,7 +522,7 @@ def public(g:dict)->dict:
                 for item in p["assets"].values()]
         if p["cost"]:
             ledger.append({"label":"已承担的代价","state":"逐渐扩大" if p["cost"]["active"] and p["cost"]["level"]>=2 else "正在生效" if p["cost"]["active"] else "已阻断"})
-    return {"edition":"v37","phase":g["phase"],"stage":min(g["stage"]+1,5),
+    return {"edition":g.get("edition","v37"),"phase":g["phase"],"stage":min(g["stage"]+1,5),
             "turn":g["turn"],"name":g["profile"]["name"],"scene":scene(g),
             "note":g["note"],"ledger":ledger,
             "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]}
