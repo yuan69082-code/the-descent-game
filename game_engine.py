@@ -9,7 +9,7 @@ from typing import Any
 from horror_endings import HORROR_KINDS, pick_horror_ending, horror_text
 from causal_core import ensure as causal_ensure, on_clue as causal_on_clue, on_loss as causal_on_loss
 from causal_core import on_stage as causal_on_stage, begin as causal_begin, finish as causal_finish
-from causal_core import active_focus, consequence_overlay, ending_echo
+from causal_core import active_focus, consequence_overlay, ending_echo, assert_official as causal_claim
 
 VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
@@ -293,6 +293,9 @@ def intent(t:str, mode:str="")->str:
         explicit=re.match(r"^([ABC])(?=[\s，,。．:：、）)!！?])",text)
     if explicit and not re.search(r"先(?:调查|检查|核对|审查).*再(?:选|提交)",text):
         return "choice_"+explicit.group(1).upper()
+    # Review an actually signed statement, rather than guessing its intent from keywords.
+    if has(text,r"核对|调取|检查|查看|查阅|复核|审查|inspect|review|retrieve") and has(text,r"签署原文|签过的原文|原始声明|完整原文|我的原话|我写的声明|之前的证词|签过的文字|original statement|signed text"):
+        return "review_original"
     # The physical mail slot is a hidden world affordance, not a menu choice.
     SLOT = r"回执槽|投递槽|收件槽|投递口|投信口|收件口|出件口|信件口|邮筒|mail.?slot|letter.?slot|delivery.?slot"
     if has(text,LOOK) and has(text,SLOT): return "inspect_slot"
@@ -353,6 +356,17 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         return g
     if move=="exit":
         ending(g,"EXIT")
+        return g
+    if move=="review_original":
+        literal=causal_ensure(g)["world"].get("signed_statement_literal")
+        if not literal:
+            g["note"]="没有找到你亲手签署的原始声明。只有系统要求填写的空白格式。"
+        elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
+            g["note"]="你要求调取完整原文，但目前只能获得官方摘要；原始签收链不对你开放。你尚无法核验它是否被截断。"
+        else:
+            add_clue(g,"original_declaration","本人签过的完整原文与官方摘要被保存为两份可对照的材料。")
+            g["note"]="你拿到原始声明：『"+literal[:240]+"』\n\n机构摘要只有：『当事人否认原有原则。』两份文字并不相同；机构拒绝解释删去的部分。"
+        mirror_tick(g)
         return g
     if move=="intercept_delivery":
         cp=counterplays(g)
@@ -439,6 +453,7 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             g["note"]="此号码已拒绝第三次拨号。那份未签名的转述仍在等待转送，电话操作已被关闭。"
         return g
     if move=="ask_registration_order" and g["stage"]==3:
+        causal_claim(g,"duplicate_first",True,"副本宣称自己比你早七分钟完成登记。")
         cp=counterplays(g)
         cp["order_asked"]=True
         cp["duplicate_claim"]=True
