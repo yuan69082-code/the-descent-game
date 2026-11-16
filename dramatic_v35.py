@@ -187,6 +187,9 @@ def scene_overlay(g:dict)->str:
                         "机构将它压在下一份处置单下方，等待正式移交。")
 
     if stage>=3:
+        if "relation" in lost and stage==3:
+            note.append("你再次申请让"+person+"出面确认第一封信，却得到『见证关系已销毁』的回执。"
+                        "联系人名字仍看得见，作证资格却已经不在。")
         if "memory" in saved:
             note.append("你拿回了记忆的独立来源。"
                         "副本能复述案卷内容，却无法凭复述取走你已经核验的记录。")
