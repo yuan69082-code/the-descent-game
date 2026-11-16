@@ -64,7 +64,7 @@ def new_game()->dict:
             "a":"","b":"","negative":[],"assets":{},
             "cost":None,"consequences":[],"choices":[],
             "beat":0,"proof":[],"relay_closed":False,"objection":False,
-            "source_copy":False,"replacement":0,"pressure":0,
+            "source_copy":False,"replacement":0,"distance":0,"doubt":0,"drain":0,"pressure":0,
             "first_words":"","last_action":None,"last_checked":False,
             "end_reason":"","official_copy":None,"turn_limit":42,
         }
@@ -87,6 +87,36 @@ def _same_subject(x:str,y:str)->bool:
         r"未来|计划|成长|目标",
     )
     return any(re.search(t,x) and re.search(t,y) for t in groups)
+
+def _new_cost(label:str,choice:str,turn:int)->dict:
+    """A different aversion creates a different failure channel."""
+    if re.search(r"孤独|孤立|独处|隔离|失联|断联|无人回应|忽视|不被理",label):
+        kind="isolation"
+    elif re.search(r"欺骗|谎言|背叛|伪造|冒名|假冒|被替换|取代",label):
+        kind="distortion"
+    elif re.search(r"监视|监控|窥视|控制|强迫|被操纵|被支配|监管",label):
+        kind="surveillance"
+    elif re.search(r"未知|不确定|无法确认|混乱|不信任|失控|无依据",label):
+        kind="uncertainty"
+    else:
+        kind="exhaustion"
+    return {"name":label,"kind":kind,"level":1,"active":True,
+            "source_choice":choice,"accepted_at":turn}
+
+def _grow_cost(g:dict):
+    p=g["psych"]
+    cost=p["cost"]
+    if not cost or not cost["active"] or p["relay_closed"]:
+        return
+    kind=cost["kind"]
+    if kind in ("surveillance","distortion"):
+        p["replacement"]+=1
+    elif kind=="isolation":
+        p["distance"]+=1
+    elif kind=="uncertainty":
+        p["doubt"]+=1
+    else:
+        p["drain"]+=1
 
 def _setup(g:dict):
     p=g["psych"]
@@ -252,7 +282,7 @@ def _stage3(g:dict,action:str,mode:str):
             g["note"]="这份代价并没有出现在本次游戏的选项里。"
             return
         burden=p["negative"][ix]
-        p["cost"]={"name":burden,"level":1,"active":True,"source_choice":c,"accepted_at":g["turn"]}
+        p["cost"]=_new_cost(burden,c,g["turn"])
         p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
         _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全。")
         g["note"]=("这次交换真的成功了：两份原件都被保住。" +
@@ -283,13 +313,13 @@ def _stage4(g:dict,action:str,mode:str):
     if c=="A":
         if cost is None:
             burden=p["negative"][0]
-            cost={"name":burden,"level":1,"active":True,"source_choice":"4A","accepted_at":g["turn"]}
+            cost=_new_cost(burden,"4A",g["turn"])
             p["cost"]=cost
             note="你接受了新的「"+burden+"」，换取了现存原件的额外保护。"
         else:
             cost["level"]+=1
             note="你继续委托代行者，下一步处理权也交给了它。"
-        p["replacement"]+=1 if not p["relay_closed"] else 0
+        _grow_cost(g)
         p["pressure"]+=1
         _commit(g,action,c,note)
         g["note"]=note+"这轮保护确实奏效，但代行权限的范围也扩大了。"
@@ -320,7 +350,10 @@ def _stage4(g:dict,action:str,mode:str):
     if p["beat"]>=2:
         g["stage"]=4;p["beat"]=0
         if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
-            p["official_copy"]="公开报告把第三幕允许的『原件保管』扩写成『可代替登记人对外答复』，却拿不出第二次授权。"
+            p["official_copy"]=(
+                "公开报告把第三幕允许的『保管』扩大成了『代为答复』。"
+                if p["cost"]["kind"] in ("surveillance","distortion") else
+                "公开报告称隔离与黑箱处理没有影响通讯和核验，但对外记录已经缺失了来源。")
         else:
             p["official_copy"]="公开报告声称两份资料始终有一条独立来源链；回收线路却仍连接着共享保管库。"
         _log(g,"第四幕结束。真正的签字记录与机构的公开说明开始出现可核验偏差。","progress")
@@ -341,7 +374,7 @@ def _collapse(g:dict,choice:str,raw:str):
         p["consequences"].append({"source":"registry","asset":key,
                                   "reason":"共享保管库的总清算路由尚未切断；此前状态："+before})
     if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
-        p["replacement"]=max(p["replacement"],2)
+        _grow_cost(g)
     p["pressure"]+=1
     _finish(g,good=False)
 
@@ -369,10 +402,16 @@ def _stage5(g:dict,action:str,mode:str):
         if c in ("A","B","C"):
             p["beat"]=1
             if p["cost"] and p["cost"].get("active") and not p["relay_closed"]:
-                p["replacement"]+=1
-                _log(g,"代行者在最终回收前，开始使用它保管的答复渠道代替原登记人回应。","event")
-                g["note"]=("你请求最后一次确认。对方的回应格式没有改变，但署名栏只剩一个空白。" +
-                "独立原件还在；这两件事目前还不能混成同一个事实。")
+                _grow_cost(g)
+                kind=p["cost"]["kind"]
+                observations={
+                    "isolation":"你试着联系原来的答复者。隔离通道持续将请求转交给一个空白地址。",
+                    "distortion":"你收到了一份模仿原先语气的回复。署名栏是空白，来源却指向受托转述端。",
+                    "surveillance":"监控台已能替你选择收发的消息。答复很熟悉，署名栏却只剩空白。",
+                    "uncertainty":"黑箱系统仍提供结论，却已无法给出这份回复来自谁的独立记录。",
+                    "exhaustion":"维护与核对占满了你能使用的通道。最后的回复只能经过自动代行端。"}
+                g["note"]=observations[kind]
+                _log(g,"被接受的代价继续演化："+g["note"],"event")
             else:
                 g["note"]="总清算请求已送到。你仍有一次核验或者实际阻断的机会；拒签并不会被自动改写成同意。"
             return
