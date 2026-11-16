@@ -124,7 +124,7 @@ def after(g:dict,snapshot:dict):
     before_wins=len(story["wins"])
     if g["phase"]=="game":
         settle(g,move)
-    if len(story["wins"])>before_wins or any(v["turn"]==g["turn"] for v in story["wins"]):
+    if any(v["turn"]==g["turn"] for v in story["wins"]):
         if g.get("causality",{}).get("actions"):
             g["causality"]["actions"][-1]["effective"]=True
     if g.get("causality",{}).get("actions"):
@@ -190,8 +190,7 @@ def stage_deferred(g:dict,stage:int,move:str)->bool:
         key=next((x for x in [g.get("fear_focus"),*g["profile"]["rank"]]
                   if x not in g.get("lost",[]) and x!="principle"),None)
         if key in ("relation","memory","freedom","principle"):
-            queue(g,key,"机构试图将先前拒签产生的担保责任转嫁给此项凭据。",2)
-            return True
+            return queue(g,key,"机构试图将先前拒签产生的担保责任转嫁给此项凭据。",2)
     if stage==3 and move in ("choice_B","refuse"):
         queue(g,"freedom","双重登记纠纷未获得足够独立反证；行动资格冻结令执行。",2)
         return True
@@ -247,7 +246,7 @@ def final_action(g:dict,text:str)->dict:
         raise ValueError("可以留空，但请明确提交「不留最后的话」。")
     g["turn"]+=1
     g["recent_input"]=short
-    is_blank=short in ("不留","不留最后的话","留空","保持沉默","跳过","skip","结束","不说")
+    is_blank=short in ("不留","不留最后的话","留空","保持沉默","跳过","skip","结束","结束游戏","退出游戏","不说")
     if is_blank:
         reaction="你决定不再留下任何话。最后一栏保持空白。"
         story["final_action"]={"kind":"silence","raw":short,"outcome":reaction}
