@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - v3-3-endings
+      - v3-4-global-causality
       - main
   workflow_dispatch:
 jobs:
