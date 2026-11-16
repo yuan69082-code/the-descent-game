@@ -54,6 +54,8 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
             lines.extend(["", "──────── 作者留言 ────────",end["author_note"]])
         return "\n".join(lines)
     sc=v["scene"]
+    if state["phase"]=="epilogue":
+        lines.append("结局已定。这是最后一次自由记录，不需要作出规定的选择；可提交原话、反驳或『不留最后的话』。")
     lines.extend([f"【{sc['chapter']}】{sc['title']}",sc["body"]])
     if sc.get("terms"):lines.extend(["",*sc["terms"]])
     if sc.get("footer"):lines.extend(["",sc["footer"]])

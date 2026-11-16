@@ -265,7 +265,7 @@ def consequence_overlay(g:dict)->str:
         protection=c["protection"].get(focus,[])
         successful=sum(1 for v in protection if v["effective"])
         if len(protection)>=2 and successful:
-            parts.append("此前几次处置中，你反复为「"+NAMES[focus]+"」采取行动。机构把它加入了下一次可被争夺的事项，而不再只看你最初填的排序。")
+            parts.append("你曾数次为了「"+NAMES[focus]+"」中断原来的流程。如今，相关记录在另一份案卷里被翻开；没有人解释为什么专门挑了这些页。")
     if stage>=2:
         previous=[x for x in c["actions"] if x["stage"]<stage and x["effective"]]
         if previous:

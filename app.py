@@ -84,7 +84,7 @@ def index():
 
 @app.get("/healthz")
 def health():
-    return {"ok":True,"name":"THE DESCENT","version":2}
+    return {"ok":True,"name":"THE DESCENT","version":"3.5"}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):
@@ -122,6 +122,12 @@ def export(x_session:str=Header(default="")):
     with db() as conn:g,_=get_session(conn,x_session)
     # Full transcript for the player, including private questionnaire, but not private scoring/rules.
     out={"name":g["profile"]["name"],"questionnaire":g["profile"],"lost":g["lost"],"events":g["history"],"ending":g["ending"]}
+    if "story_v35" in g:
+        story=g["story_v35"]
+        out["experience"]={"first_words":story.get("first_words",""),
+                           "real_local_wins":story.get("wins",[]),
+                           "pending_orders":story.get("pending",[]),
+                           "final_action":story.get("final_action")}
     return JSONResponse(out,headers={"Content-Disposition":"attachment; filename=the_descent_session.json"})
 
 @app.delete("/api/session")

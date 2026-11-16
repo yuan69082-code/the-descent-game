@@ -25,7 +25,7 @@
     if(!res.ok)throw Error(typeof out.detail==='string'?out.detail:'游戏操作失败 ('+res.status+')');
     return out;
   }
-  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':'SESSION / '+String(current?.stage||1).padStart(2,'0');}
+  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':'SESSION / '+String(current?.stage||1).padStart(2,'0');}
   function inputField(k,label,placeholder){
     const wrap=el('div','field');const lab=el('label','',label);lab.setAttribute('for','f_'+k);wrap.append(lab);
     const n=el(k==='name'||k==='person'?'input':'textarea','control');n.id='f_'+k;n.value=form[k];n.placeholder=placeholder;
@@ -72,12 +72,22 @@
     if(sc.terms?.length){const terms=el('div','terms');sc.terms.forEach(t=>terms.append(el('div','term',t)));body.append(terms);}
     if(sc.footer)body.append(el('div','footerCode',sc.footer));
     if(current.note)body.append(el('div','lastNote',current.note));pane.append(body);
-    const response=el('section','response');response.append(el('label','smallLabel','YOUR RESPONSE / 你的行动'));
+    const response=el('section','response');response.append(el('label','smallLabel',
+      current.phase==='epilogue'?'POSTSCRIPT / 最后一行由你写':'YOUR RESPONSE / 你的行动'));
     const ta=el('textarea','control');ta.id='action';ta.rows=4;ta.maxLength=700;ta.placeholder=sc.placeholder||'你的决定……';response.append(ta);
     const row=el('div','rowActions');
-    const submit=button('提交行动',async()=>{if(!ta.value.trim())return toast('请写下你的行动。');submit.disabled=true;try{current=await api('action',{method:'POST',body:JSON.stringify({action:ta.value,version:current.version})});showGame();}catch(e){toast(e.message);submit.disabled=false;}} ,'btn primary');
+    const submit=button(current.phase==='epilogue'?'保存最后一句':'提交行动',async()=>{if(!ta.value.trim())return toast('请写下你的行动。');submit.disabled=true;try{current=await api('action',{method:'POST',body:JSON.stringify({action:ta.value,version:current.version})});showGame();}catch(e){toast(e.message);submit.disabled=false;}} ,'btn primary');
     ta.addEventListener('keydown',e=>{if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){e.preventDefault();submit.click();}});
-    row.append(submit,button('复制场景给 AI',copyScene,'btn subtle'));response.append(row);pane.append(response);game.append(pane);
+    row.append(submit,button('复制场景给 AI',copyScene,'btn subtle'));
+    if(current.phase==='epilogue'){
+      row.append(button('不留最后的话，结束',async()=>{
+        try{current=await api('action',{method:'POST',
+          body:JSON.stringify({action:'不留最后的话',version:current.version})});showGame();}
+        catch(e){toast(e.message);}
+      },'btn subtle'));
+      response.append(el('p','help','这是游戏内的最后一行；不会向游戏外发送消息，也不能撤销已确定的结局。'));
+    }
+    response.append(row);pane.append(response);game.append(pane);
     const side=el('aside','side');
     const ledgerBox=el('section','sideCard');ledgerBox.append(el('div','sideHead','仍然有效的资格'));
     const ledger=el('div','ledger');current.ledger.forEach(v=>{const entry=el('div','entry'+(v.state==='失效'?' off':''));entry.append(el('span','',v.label),el('mark','',v.state));ledger.append(entry);});ledgerBox.append(ledger);side.append(ledgerBox);
@@ -90,6 +100,12 @@
   function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag','CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
     const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);
     const row=el('div','rowActions');row.append(button('导出对局记录',exportGame),button('开始新的一局',async()=>{if(!confirm('新的一局将删除本局存档。确定吗？'))return;try{await resetSession();}catch(e){toast('删除失败：'+e.message);}},'btn subtle'),button('彻底删除本局',deleteGame,'btn danger'));box.append(row);
+    if(current.ending.postscript){
+      const saved=el('div','lastNote','最后留下的记录：'+
+        (current.ending.postscript.player_text||'[留空]')+
+        '\n'+current.ending.postscript.result);
+      box.append(saved);
+    }
     end.append(box);
     // An isolated afterword: visible only after completing a narrative ending, never when exiting.
     if(current.ending.author_note){
