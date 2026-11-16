@@ -346,9 +346,13 @@ def _stage4(g:dict,action:str,mode:str):
         g["note"]=note
     else:
         p["objection"]=True
-        if "source" in p["proof"] and "copy" in p["proof"]:
+        if "source" in p["proof"] and ("copy" in p["proof"] or
+            (g.get("edition")=="v39" and "cross_act_trace" in p["proof"])):
             p["pressure"]=max(0,p["pressure"]-1)
-            note="你提交了独立原件支持的异议，机构被迫暂停一次自动处理。"
+            if g.get("edition")=="v39" and "cross_act_trace" in p["proof"] and
+               p.get("replacement",0)>0:
+                p["replacement"]-=1
+            note="你提交了真正能说明那段话来源的证据，机构被迫暂停一次自动处理。"
         else:
             p["pressure"]+=1
             note="你的异议被登记，但尚未有独立证据能暂停原来的处理。"

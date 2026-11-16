@@ -159,8 +159,8 @@ def create(g):
                 h.setdefault("seen_at",[]).append(stage)
     return p["plan"]
 
-def remember(g,raw:str,previous_stage:int,literal:str|None=None):
-    """Only actual player submissions seed potential future hooks."""
+def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
+    """Only actual submissions, not mere model plans, have effects."""
     if g.get("edition")!="v39":return
     p=g["psych"]
     p.setdefault("question_log",[])
@@ -172,6 +172,19 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None):
     p.setdefault("literal_actions",[]).append({"act":previous_stage+1,
            "literal":original,"accepted_action":value,"turn":g["turn"]})
     p["literal_actions"]=p["literal_actions"][-55:]
+    current=p.get("plan") or {}
+    earlier=next((h for h in p.get("hooks",[]) if h["id"]==current.get("hook_id")
+                  and h["origin"]<previous_stage),None)
+    investigating=bool(re.search(r"核对|检查|调查|查证|追查|溯源|记录|原话|来源|谁告诉|怎么知道|比对|verify|trace|inspect|check",original,re.I))
+    if earlier and previous_stage>=2 and (mode=="inspect" or investigating):
+        p.setdefault("traced_hooks",[])
+        if earlier["id"] not in p["traced_hooks"]:
+            p["traced_hooks"].append(earlier["id"])
+            earlier["traced"]=True
+            from v37_engine import _log
+            _log(g,"玩家追查了此前某段原话为什么会出现在新的场景。","evidence")
+            if "cross_act_trace" not in p["proof"]:
+                p["proof"].append("cross_act_trace")
     if previous_stage in (0,1):
         from v37_engine import QUESTIONS,PROBES
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
@@ -211,6 +224,10 @@ def _callback(g,card):
     if not hook or hook["origin"]>=g["stage"]:return ""
     detail=hook["detail"].strip()[:100]
     if not detail:return ""
+    if hook.get("traced"):
+        return ("你已经追查过这句话出现的来路：「"+detail+"」。"
+                "你说过这句话是真的；别人从那份访谈里读到它也是真的。"
+                "但这不是允许别人代替你回答的授权。")
     # These are in-world signs, not a claim that an interview was consent.
     focus=card.get("focus","a");stage=g["stage"];kind=hook["kind"]
     if stage==1:
@@ -261,7 +278,13 @@ def paint(g,result):
         mode=card.get("mode","")
         pivot=_callback(g,card)
         assets=p.get("assets") or {}
-        target=assets.get("a" if card.get("focus")=="a" else "b",{}).get("label","")
+        focus=card.get("focus","a")
+        if focus in ("a","b"):
+            target=assets.get(focus,{}).get("label","")
+        elif focus=="aversion":
+            target=(p.get("negative") or [""])[0]
+        else:
+            target=p.get("cost",{}).get("name","") if p.get("cost") else ""
         effects={
           "choice":"有人把两个你想保住的东西放在了不同方向。",
           "trace":"纸面记录很整齐，唯独缺少最早答应保管的人。",
@@ -275,10 +298,12 @@ def paint(g,result):
           "confrontation":"对方不再解释理由。之前的选择都被摆在了眼前。",
           "silence":"门没有锁，仍然没有回应。你还记得这里曾经有人回答过。"
         }
+        grounding=("这一次，对方把目光停在「"+target[:60]+"」上。"
+                   if target and stage in (2,3,4) else "")
         if pivot:
-            scene["body"]=pivot+"\n\n"+effects.get(mode,"")+"\n\n"+scene["body"]
+            scene["body"]=pivot+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
         elif mode in effects:
-            scene["body"]=effects[mode]+"\n\n"+scene["body"]
+            scene["body"]=grounding+effects[mode]+"\n\n"+scene["body"]
         # The server's authoritative options stay exactly as the engine provided.
         scene["footer"]=""
         result["note"]=""
