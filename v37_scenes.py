@@ -117,45 +117,66 @@ def scene(g:dict)->dict:
             terms,"PRESSURE · VERIFIED ACTIONS ONLY","继续选择、交涉、核对或采取具体行动")
     if act==4:
         first=p["first_words"] or "（未留下特定原话）"
+        first_commit=p["choices"][0] if p["choices"] else {}
+        first_key=first_commit.get("choice","")
+        if first_key in ("A","B"):
+            given="b" if first_key=="A" else "a"
+            kept="a" if first_key=="A" else "b"
+            past=("第三幕你正式决定保住「"+p["assets"][kept]["label"]+"」，"
+                  "交出了「"+p["assets"][given]["label"]+"」的原件。"
+                  "这是你当时实际作出的选择，不是闲谈里的表态。")
+        elif first_key in ("C","D"):
+            past=("第三幕你决定承担「"+negatives[0 if first_key=="C" else min(1,len(negatives)-1)]+"」，"
+                  "换来两份原件都暂时留下。"
+                  "它确实履行了这次承诺——随后才开始索要更多通道。")
+        else:
+            past=("第三幕你绕过了那份交换协议，用自己取得的证据让两份原件继续存在。"
+                  "保管机关仍然想启动整个库房的旧清算程序。")
         if cost and p["replacement"]>=2 and not p["relay_closed"]:
             response=("你请求另一个确认。回复很快出现，像之前一样熟悉。\n"
                       "只有署名处是空白。\n\n"
-                      "它说：『我知道那段记录。』\n"
-                      "你问它是否亲历过，它没有回答这个问题。")
+                      "它说：『我读过原来那个人留下的字。』\n"
+                      "你问它是不是原来的答复者，它停了很久。")
         elif p["relay_closed"]:
-            response=("代行转发口仍旧隔离。机器这一次没能替别人回答。\n"
+            response=("代行转发口仍旧隔离。机器这一次没能代替别人回答。\n"
                       "但总清算机仍宣称自己拥有原件的最终处理权。")
+        elif first_key in ("A","B"):
+            response=("你在新回执上再次看到那份早已交出的原件编号。"
+                      "它不在手里，却仍是剩余原件的核对依据。"
+                      "原来当时放弃它，并没有让它从因果链上消失。")
         else:
-            response=("你发现公开复核单引用了一项『默认授权』。\n"
-                      "原来它竟然把你前两幕的一段假设回答拿来当依据。")
-        original=("最早的一份回答原文仍可核对；"
-                  "它是否支持机构的结论，还需要拿原始记录与对外版本比较。")
+            response=("公开报告把两份原件标成了『互不依赖』。"
+                      "你往下看，两个编号仍接在同一条尚未断开的回收线路上。")
         if "contrast" in p["proof"]:
-            original=("你已经取得独立对照证据：当时的原话确实是「"+first[:180]+"」。"
-                      "官方把假设当成授权，这件事有明确矛盾。")
+            original=("你拿到了两份可核验的原件：第一幕你确实说过「"+first[:180]+"」。"
+                      "另一个签字记录来自第三幕。"
+                      "后来的代行范围和执行报告却对不上这两份原件。")
+        else:
+            original=("原始话语、第三幕的正式决定、最新的公开报告，"
+                      "被压在同一张清算单下面。"
+                      "你可以调查它们，但不能仅凭某份摘要就认定有人曾经同意。")
         if p["beat"]==0:
             terms=[
                 "A. 让清算请求进入最后核对阶段。",
-                "B. 拒绝认可机构的说法，要求最终核对。",
+                "B. 拒绝认可机构的结论，要求最终核对。",
                 "C. 留下异议，不把沉默当成同意。",
             ]
-            closing="你还有时间检查原件、核对执行链。反抗必须真正改变执行条件才会生效。"
+            closing=("送往下一间柜子的纸张已经开始减少。"
+                     "你还有时间检查原件、核对执行链；真正的反制必须改变实际执行条件。")
         else:
             terms=[
                 "A. 正式签署结案，观察真实结算。",
                 "B. 明确拒签并核对机构实际执行的结果。",
-                "C. 再次申明异议；如要实际停机，请指出依据并操作。",
+                "C. 继续提出异议，或自行采取可验证的实际措施。",
             ]
-            closing=("就在清算单下方，有一处仍可申请复核的总授权路由。"
-                     "最后一步不能靠一句愿望完成。")
+            closing=("最后一条回收线路仍接着两份原件的存放地址。"
+                     "仅仅拒签不会让旧程序停止，但拒签也不会变成你同意过。")
         if cost and cost.get("active"):
-            closing+="\n\n你曾主动接受的「"+cost["name"]+"」还在。它是否继续侵占，取决于实际权限有没有被切断。"
+            closing+=("\n\n你主动接受的「"+cost["name"]+"」仍在运行。"
+                      "现在它有多大权限，你可以从执行链中直接核对。")
         return _frame("05 / 归零","谁在替你回答",
-            response+"\n\n"+original+"\n\n"
-            "第三幕以来你真实交出的东西，和第一幕曾随口谈到的东西，"
-            "在这里被印在同一份清算单上。"
-            "那不意味着最初的聊天就等于同意。\n\n"+closing,
-            terms,"FINAL RECONCILIATION · ORIGINAL != PUBLIC CLAIM",
+            past+"\n\n"+response+"\n\n"+original+"\n\n"+closing,
+            terms,"FINAL RECONCILIATION · ORIGINAL / EXECUTION / REPORT",
             "核对、明确决策，或者实施有证据的反制")
     raise ValueError("未知游戏幕次")
 
@@ -174,15 +195,20 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     a,b=assets["a"]["label"],assets["b"]["label"]
     first=p["first_words"] or "（最早没有留下具体原话）"
     steps=[x["result"] for x in p["choices"] if x.get("result")]
-    history="；".join(steps[-3:]) or "没有登记到授权的主动牺牲"
+    history=("第三幕的真实选择："+steps[0]+
+             ("\n之后的决定："+"；".join(steps[-2:]) if len(steps)>1 else "")) if steps else "没有登记到授权的主动牺牲"
     if good:
+        saved=[x["label"] for x in assets.values() if x["status"]!="已交出"]
+        earlier=[x["label"] for x in assets.values() if x["status"]=="已交出"]
+        result="、".join(saved) or "这局仍有权检索的原始记录"
+        earlier_text=("你在第三幕主动交出的「"+"、".join(earlier)+"」不会因为反制就自动回来。\n\n") if earlier else ""
         return (
             "HE","原件仍有主人",
-            "总授权链被你从物理执行口切断。"
-            "机构仍然保存着它编造的『同意』，却已无法借它执行回收。\n\n"
-            "你真正选择过的代价仍然存在于记录里，已交出的东西也不会凭一句话自动复原。"
-            "\n\n但还留在你手里的「"+a+"」和「"+b+"」，没有被这次总清算带走。"
-            "\n\n第一幕的原话依旧是原话，并不是一张后来凭空长出的签名。"
+            "你沿着独立证据找到总授权链，并亲手让执行端不再接受那份未获核验的回收请求。"
+            "档案柜还在，但它不能再借用你自己的记录夺走东西。\n\n"
+            + earlier_text
+            + "保住了还在手里的："+result+"。\n\n"
+            "你第一幕的原话仍是原话；第三幕的真实选择也未被改写。"
         )
     cost=p.get("cost")
     replaced=bool(cost and p["replacement"]>=2 and not p["relay_closed"])
@@ -233,8 +259,9 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
                  "\n\n原本被你提到的：「"+first[:180]+"」"
                  "\n\n最后留在游戏柜里的东西：没有。")
     text=("最初你以为只需要处理「"+a+"」与「"+b+"」。"
-          "你不喜欢的代价和那些迟迟没有解决的授权，后来同时抵达。"
+          "迟迟没有解开的旧授权和你自己选择承担的代价，终于抵达了同一间柜子。"
           "\n\n"+last+"\n\n"
-          "机构公开档案的版本与你的原话不同，但游戏没有把你的原始回答改写成同意。"
+          "第一幕留下的不是处置同意书。"
+          "你真正选过的那几页还在，只是已经不能替你挡下所有后来生效的处理。"
           "\n\n"+explanation)
     return (kind,TITLES[kind],text)
