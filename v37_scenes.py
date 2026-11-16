@@ -82,9 +82,14 @@ def scene(g:dict)->dict:
         statuses="；".join("「"+x["label"]+"」："+x["status"] for x in p["assets"].values())
         if p["beat"]==0:
             if cost:
+                effects={
+                    "surveillance":"保管者开始查看每次联系的内容，并想替你选择哪些回复可以送达。",
+                    "distortion":"代行者负责转述你的请求。它说这是为了保护原件，可转述内容开始与你发出去的不一样。",
+                    "isolation":"两份原件被安全地隔离了。与此同时，你需要经过一个越来越狭窄的通道才能碰到它们。",
+                    "uncertainty":"黑箱确实保住了两份原件，但每次询问来源，它只回答『处理完成』。",
+                    "exhaustion":"两份原件都在，但维护它们的额外负担挤占了你亲自核对的机会。"}
                 opening=("第三幕的交换奏效了。两份原件都还在。\n\n"
-                         "代行者开始用「"+ca+"」处理你不愿意放手的东西。"
-                         "你现在发现它不仅替你保管，还在为下一次回复选择通道。")
+                         "你选择承担「"+ca+"」。"+effects[cost["kind"]])
             elif any(x["status"]=="已交出" for x in p["assets"].values()):
                 opening=("上一幕你正式放弃了一份原件，另一份得以保住。\n\n"
                          "可是新的复核表显示，两份原件原本共用一条来源核验链。"
@@ -132,7 +137,19 @@ def scene(g:dict)->dict:
         else:
             past=("第三幕你绕过了那份交换协议，用自己取得的证据让两份原件继续存在。"
                   "保管机关仍然想启动整个库房的旧清算程序。")
-        if cost and p["replacement"]>=2 and not p["relay_closed"]:
+        if cost and not p["relay_closed"] and p.get("distance",0)>=2:
+            response=("你一直努力维持的东西还在库房另一端。\n"
+                      "可是为了保护它而接受的隔离，已经把每一条返回的线路隔开。"
+                      "通讯显示『待答复』，联系人姓名是一行空白。")
+        elif cost and not p["relay_closed"] and p.get("doubt",0)>=2:
+            response=("两份原件依旧有编号。黑箱也不断声称『内容安全』。\n"
+                      "你要求它给出上一个问题的真实答复来源，"
+                      "它只返回一串无法对应任何人的序号。")
+        elif cost and not p["relay_closed"] and p.get("drain",0)>=2:
+            response=("你还在维护两份原件，可核对的机会却越来越少。"
+                      "当你终于能读到回复时，它已经经过多轮自动转发，"
+                      "没有人能告诉你第一位答复者是谁。")
+        elif cost and p["replacement"]>=2 and not p["relay_closed"]:
             response=("你请求另一个确认。回复很快出现，像之前一样熟悉。\n"
                       "只有署名处是空白。\n\n"
                       "它说：『我读过原来那个人留下的字。』\n"
@@ -213,7 +230,13 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     cost=p.get("cost")
     replaced=bool(cost and p["replacement"]>=2 and not p["relay_closed"])
     orig=[x for x in p["consequences"] if x["source"]=="actual_choice"]
-    if replaced and p["objection"]:
+    if cost and not p["relay_closed"] and p.get("distance",0)>=2:
+        kind="LAST_CALL"
+    elif cost and not p["relay_closed"] and p.get("doubt",0)>=2:
+        kind="ORIGINLESS"
+    elif cost and not p["relay_closed"] and p.get("drain",0)>=2:
+        kind="VOID"
+    elif replaced and p["objection"]:
         kind="SHARED"
     elif replaced:
         kind="IMPOSTOR"
@@ -243,7 +266,16 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
         kind="CLEAN_EXIT"
     if kind not in HORROR_KINDS:
         kind="VOID"
-    if replaced:
+    if cost and kind=="LAST_CALL":
+        last=("你为了保护它接受了隔离，如今最初的联系请求仍然存在，"
+              "只是再没有一条能够把答复送回来的通道。")
+    elif cost and kind=="ORIGINLESS":
+        last=("黑箱一份接一份吐出『处理完成』的凭证，"
+              "却没有任何一份可以对应你最初见过的来源。")
+    elif cost and kind=="VOID":
+        last=("维护没有停止，投入也没有停止。"
+              "最后连你想保住的原件都只剩下『仍需处理』的空白任务。")
+    elif replaced:
         last=("最后一份回应仍然使用你熟悉的格式。"
               "可它的署名只剩一格空白；代行者承认自己读取过先前的记录，"
               "却无法拿出属于原来答复者的独立经历。")
