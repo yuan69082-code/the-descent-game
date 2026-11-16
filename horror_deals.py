@@ -22,7 +22,7 @@ NO_REPLY=re.compile(r"(?:不能|不得|不许|不允许|别|禁止).{0,14}(?:代
 NO_EXPAND=re.compile(r"(?:不能|不得|不许|不允许|禁止|别).{0,18}(?:扩大|扩张|扩权|扩展|转授权|转交|增加权限)|(?:只能|仅限).{0,10}(?:本次|这次|一次|当前)",re.I)
 REVOCABLE=re.compile(r"(?:可以|允许|保留|随时|能够).{0,12}(?:撤销|退出|收回|终止|解除)",re.I)
 IMPOSSIBLE=re.compile(r"(?:永久|永远|绝对|无论如何|百分之百).{0,18}(?:保证|不失去|不会失去|不被夺走|安全)|(?:保证|确保).{0,14}(?:永远|永久|绝对|绝不失去)",re.I)
-OVERRIDE=re.compile(r"我(?:现在|明确)?(?:同意|允许|决定).{0,16}(?:扩大|扩权|增加|放宽|解除限制)|(?:撤回|解除|放弃).{0,14}(?:不扩大|限制|原有条件)",re.I)
+OVERRIDE=re.compile(r"我(?:现在|明确)?(?:同意|允许|决定).{0,20}(?:扩大|扩权|增加|放宽|解除|撤销)|(?:撤销|撤回|解除|放弃).{0,18}(?:不扩大|不扩权|限制|原有条件)",re.I)
 
 def _cost_type(s):
     from v37_engine import _new_cost
@@ -60,6 +60,12 @@ def parse(g,action,mode=""):
                 break
     elif mode=="choose" and len(costs)==1:
         chosen="C"
+    if chosen in ("C","D") and requested_kind:
+        listed=costs[0 if chosen=="C" else 1] if len(costs)>(0 if chosen=="C" else 1) else ""
+        if listed and _cost_type(listed)!=requested_kind:
+            # The letter and the spoken cost disagree; the *spoken* cost is not
+            # discarded. Treat it as an explicit player counter-offer.
+            chosen=None
     if chosen is None and not requested_kind:
         return {"blocked":"你提出了交换，但还没有说清要承担哪一种代价。"
                           "桌边有两份现成报价；也可以说出你愿意承担的具体代价。"}
