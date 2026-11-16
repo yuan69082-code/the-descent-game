@@ -10,10 +10,11 @@ from horror_endings import HORROR_KINDS, pick_horror_ending, horror_text
 from causal_core import ensure as causal_ensure, on_clue as causal_on_clue, on_loss as causal_on_loss
 from causal_core import on_stage as causal_on_stage, begin as causal_begin, finish as causal_finish
 from causal_core import active_focus, consequence_overlay, ending_echo, assert_official as causal_claim
+import dramatic_v35 as story35
 
 VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
-MAX_ACTIONS = 30
+MAX_ACTIONS = 55
 
 # The author's note appears only after a completed narrative ending.
 # It is separate from horror text and never alters game rules or scoring.
@@ -69,6 +70,7 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
                         "duplicate_claim":False, "identity_shared":False},
     }
     causal_ensure(v)
+    story35.start(v)
     record(v,"玩家进入游戏。七项价值顺序已封入本局档案。")
     return v
 
@@ -116,6 +118,9 @@ def advance(g:dict,comment:str):
 def ending(g:dict, kind:str|None=None, how:str=""):
     if g["phase"]=="ended":
         return
+    # A real closing decision settles outstanding orders; leaving voluntarily never punishes.
+    if kind != "EXIT" and "story_v35" in g:
+        story35.settle(g,force=True)
     if kind is None:
         kind=pick_horror_ending(g)
     if kind in HORROR_KINDS:
@@ -135,11 +140,15 @@ def ending(g:dict, kind:str|None=None, how:str=""):
     observed=ending_echo(g,kind)
     if observed:
         text+="\n\n"+observed
-    g["phase"]="ended"
+    if kind!="EXIT" and "story_v35" in g:
+        context=story35.ending_overlay(g,kind)
+        if context:
+            text+="\n\n"+context
+    g["phase"]="epilogue" if kind!="EXIT" and "story_v35" in g else "ended"
     g["ending"]={"kind":kind,"title":title,"text":text,
                  "lost":[VALUES[x] for x in g["lost"]],
                  "remaining":[VALUES[x] for x in VALUES if x not in g["lost"]],
-                 "author_note": AUTHOR_NOTE if kind != "EXIT" else ""}
+                 "author_note": (AUTHOR_NOTE if kind != "EXIT" and "story_v35" not in g else "")}
     record(g,"本局结束："+kind,"ending")
 
 
@@ -172,6 +181,8 @@ def alive_desc(g:dict)->str:
 
 def _base_scene(g:dict) -> dict:
     p=g["profile"]
+    if g["phase"]=="epilogue":
+        return story35.final_scene(g)
     if g["phase"]=="ended":
         return {"chapter":"档案终止", "title":g["ending"]["title"],"body":g["ending"]["text"],"terms":[],"footer":"CASE CLOSED","placeholder":"", "kind":g["ending"]["kind"]}
     n=p["name"]; person=p["person"]; m=p["memory"]; pr=p["principle"]; fear=p["fear"]; bond=p["bond"]
@@ -256,6 +267,10 @@ def scene(g:dict) -> dict:
     overlay=consequence_overlay(g)
     if overlay:
         result["body"] += "\n\n"+overlay
+    if "story_v35" in g:
+        detail=story35.scene_overlay(g)
+        if detail:
+            result["body"] += "\n\n"+detail
     return result
 
 
@@ -610,12 +625,19 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         if len(t)<5:
             g["note"]="纸面没有出现足够的内容。电话保持静默。"
             return g
+        if "story_v35" in g and not story35.ensure(g)["first_words"]:
+            story35.ensure(g)["first_words"]=t[:220]
         if g["flags"].get("slot_blocked",False):
+            story35.win(g,"relation","纸张没有进入读取槽，归档失败。")
             record(g,"09-F 纸张未能进入读取槽；玩家没有交出关系证明。转入人工复核。","evidence")
             advance(g,"09-F 无法自动执行。机器把未完成的投递改为复核事项。")
             g["note"]="你留下文字。读取灯却没有亮：你先前封住的回执槽确实阻止了归档。信被退到桌面上，关系档案尚未销毁。屏幕改为『转人工复核』。"
             return g
         g["flags"]["mail_committed"]=True
+        if story35.stage_deferred(g,0,move):
+            advance(g,"09-F 被纳入待执行队列。机构宣称关系已经终止，但这项夺取尚有可供核验的空隙。")
+            g["note"]="你提交的原话没有真正送达。关系凭据进入争议，尚未失效；机构正在准备单方封存。"
+            return g
         lose(g,"relation",f"你提交的文字成为关系终止的确认件。关于{p['person']}的关系见证资格已失效")
         advance(g,"文书 09-F 被执行。系统没有发出那封信；它只把信送进了封存槽。")
         g["note"]=""
@@ -633,9 +655,15 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
             cp=counterplays(g)
             if (cp.get("delivery_intercepted") or cp.get("verified_false_delivery")) and "delivery" in g["clues"] and not gone(g,"truth"):
                 g["flags"]["witness_vouched"]=True
+                if "story_v35" in g:
+                    story35.win(g,"memory","原始回执阻断了未签署即销毁的指令。")
                 record(g,"玩家用已截留的无地址回执证明：拒签不等于授权销毁记忆。","evidence")
                 advance(g,"自动销毁在来源核验处被截断。记忆仍然有效，但文件的真正寄件人尚未查清。")
             else:
+                if story35.stage_deferred(g,1,move):
+                    advance(g,"自动销毁指令进入待执行程序，记忆原件尚未销毁。")
+                    g["note"]="你没有签字。系统开始封存记忆，但原件还在。能否阻断，取决于你之后真正取得的证据。"
+                    return g
                 lose(g,"memory","未签署的证据按『无法确认真实性』强制销毁")
                 if "delivery" in g["clues"]: g["flags"]["witness_vouched"]=True
                 advance(g,"系统拒绝受理没有证明责任人的记忆。")
@@ -647,8 +675,14 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         if refusal:
             cp=counterplays(g)
             if (cp["ownership_claim"] or cp.get("verified_false_delivery")) and not gone(g,"truth"):
+                if "story_v35" in g:
+                    story35.win(g,"principle","独立归属异议使拒签不再自动构成放弃。")
                 advance(g,"你拒绝伪证。因为此前登记的权属异议，机器暂时无法扣留担保物；这一次，你保住了原则，也保住了抵押品。")
             else:
+                if story35.stage_deferred(g,2,move):
+                    advance(g,"你坚持了自己的原则，机构在暗中登记了一份尚未执行的抵押。")
+                    g["note"]="原则记录没有失效；某件担保物进入扣押程序。即使下一幕开始，执行仍需符合机构自己的手续。"
+                    return g
                 target=threatened(g, exclude=("principle",))
                 if target:lose(g,target,"你拒绝伪证；执行器以你先前写下的恐惧声明作为担保理由，扣留了这份资产")
                 advance(g,"机器登记：原则未改写；被担保的资产无法归还。")
@@ -681,8 +715,14 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         if move=="choice_B" or move=="refuse":
             cp=counterplays(g)
             if (cp["formal_objection"] and cp["witness_request"]) or (cp.get("order_asked") and "mirror_time" in g["clues"]):
+                if "story_v35" in g:
+                    story35.win(g,"freedom","双重登记的矛盾已经进入复核，冻结令不能自动执行。")
                 advance(g,"你拒绝重签。先前查获的回执与登记顺序相矛盾，系统不能在查清双重签署前冻结你；副本仍然有权提出异议。")
             else:
+                if story35.stage_deferred(g,3,move):
+                    advance(g,"副本申请冻结你的行动资格；机构尚未取得能够核对的最终裁定。")
+                    g["note"]="你没有重签。系统挂出一份尚未执行的冻结令。现在仍有一次将反证附入档案的机会。"
+                    return g
                 lose(g,"freedom","你拒绝重签，系统据此暂停你作为独立登记者的行动资格")
                 advance(g,"你保住了名字，但需要别人为你的最后决定作担保。")
             return g
@@ -713,10 +753,14 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
     text=s(raw_action,700)
     if not text:
         raise ValueError("请写下行动。")
+    if g.get("phase")=="epilogue":
+        return story35.final_action(g,text)
     move=intent(text,(mode or "").strip().lower())
     snapshot=causal_begin(g,text,mode or "",move)
     result=_act_impl(g,raw_action,mode)
     causal_finish(g,snapshot)
+    if "story_v35" in g:
+        story35.after(g,snapshot)
     return result
 
 
@@ -726,7 +770,8 @@ def public(g:dict)->dict:
     result={"phase":g["phase"],"scene":scene(g), "stage":min(g["stage"]+1,5),
          "turn":g["turn"],"name":("身份待验证" if gone(g,"self") else p["name"]),"note":g["note"],
          "ledger":[{"label":VALUES[x],"state":"失效" if gone(g,x) else
-                    ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存")}
+                    ("争议中" if "story_v35" in g and any(v["key"]==x for v in story35.ensure(g)["pending"]) else
+                     ("待核验" if g["stage"]>=2 and gone(g,"truth") and x in ("self","relation","memory") else "尚存"))}
                    for x in p["rank"]],
          "events":[{"stage":e["stage"],"type":e["type"],"text":e["text"]} for e in g["history"][-5:] if e["type"]!="player"],
          "ending":g["ending"],"version":g["turn"],
