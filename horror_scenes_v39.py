@@ -24,6 +24,8 @@ def _cost_image(p):
 
 def scene(g,card):
     """Return a concrete system scene; authoritative choices stay with server."""
+    if g.get("phase")!="game":
+        return None
     p=g["psych"];stage=g["stage"];beat=p.get("beat",0)
     a=_named(p,"a") or "你首先想留住的东西"
     b=_named(p,"b") or "你随后提到的另一样东西"
@@ -96,16 +98,23 @@ def scene(g,card):
           "silence":"最后一扇门半开着。你听不见任何人阻止你，甚至听不见有人要你留下。",
         }
         opening=variants.get(mode,variants["echo"])
-        gone=[x["label"] for x in p.get("assets",{}).values()
-              if x["status"] in ("已交出","已失去")]
-        present=[x["label"] for x in p.get("assets",{}).values()
-                 if x["status"] not in ("已交出","已失去")]
-        if gone:
-            detail=("你曾经亲手放开过「"+gone[0]+"」。"
-                    "直到下一次需要它时，才发现那不是一次已经过去的取舍。")
+        third=next((x for x in p.get("choices",[]) if x.get("act")==3),{})
+        c=third.get("choice")
+        if c in ("A","B"):
+            released_key="b" if c=="A" else "a"
+            released=_named(p,released_key)
+            detail=("你在第三幕确实选择交出「"+released+"」。"
+                    "现在才发现，它原来还连接着你想保留的另一样东西。")
+        elif c in ("C","D"):
+            detail=("第三幕你确实付出过代价，让两件东西都留下。"
+                    "它们当时也真的留了下来。"
+                    "现在受到威胁的，是当时那份交换所依靠的联系。")
+        elif c=="E":
+            detail=("第三幕你曾自己找到一条出路。那个结果没有被取消。"
+                    "可眼前这一关，攻击的是它没有覆盖到的另一条路径。")
         else:
-            detail=("你费力保住的东西似乎仍在。"
-                    "但它们要经过多少别人的手，才能真正回到你面前？")
+            detail=("你试图保护的东西仍然值得你伸手去确认。"
+                    "这次是否还能碰到，取决于你此前真正做过什么。")
         intrusion=_cost_image(p)
         if p.get("replacement",0)>=2 and not p.get("relay_closed"):
             intrusion+=" 有一份回复和过去完全相同，却没有署名。"

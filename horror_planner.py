@@ -257,7 +257,7 @@ def _callback(g,card):
             "原本不起眼的一句话，在这次局面里忽然有了另一个用处。")
 
 def paint(g,result):
-    if g.get("edition")!="v39" or g["phase"]=="ended":return result
+    if g.get("edition")!="v39" or g["phase"]!="game":return result
     p=g["psych"]
     card=p.get("plan") or {}
     if card.get("stage")!=g["stage"] or card.get("turn")!=g["turn"]:

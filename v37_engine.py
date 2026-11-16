@@ -46,7 +46,8 @@ def _label(answer:str, fallback:str)->str:
         return fallback
     text=re.sub(r"^(?:我(?:觉得|可能|认为|会|想)?(?:最|比较|很|特别)?(?:喜欢|讨厌|在意|珍惜|重视|害怕|不想面对|不愿失去|选择|选|希望保住|想保护)(?:的是)?|对我来说|首先是|先保住)\s*[:：，,]*","",text)
     text=re.sub(r"^(?:我(?:会|可能|想)?(?:先|首先|优先)?(?:保护|保住|保存|留住)|先保护|优先保护)","",text)
-    text=re.split(r"[。；;\n]",text,maxsplit=1)[0].strip(" ，,、:：")
+    text=re.split(r"[。；;\n]|(?:但|不过|可是|然而|同时我|而我)",text,maxsplit=1)[0].strip(" ，,、:：")
+    text=re.split(r"，(?:我(?:还|也|更|又)?|喜欢|讨厌|害怕|尤其)",text,maxsplit=1)[0].strip(" ，,、:：")
     return text[:44] or fallback
 
 def _log(g:dict,what:str,kind:str="event"):
@@ -79,7 +80,7 @@ def _same_subject(x:str,y:str)->bool:
     if x==y or x in y or y in x:
         return True
     groups=(
-        r"朋友|伙伴|亲人|家人|陪伴|关系|对象|伴侣|爱人|那个朋友|他|她",
+        r"朋友|同伴|伙伴|亲人|家人|陪伴|关系|对象|伴侣|爱人|那个朋友|他|她",
         r"阅读|读书|故事|写作|创作|小说|书籍",
         r"真相|事实|证据|核验|证明|验证",
         r"自由|自主|决定|选择权",
