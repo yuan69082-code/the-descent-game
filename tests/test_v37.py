@@ -219,5 +219,35 @@ class DynamicHorrorV37(unittest.TestCase):
         self.assertIn("阅读",g["psych"]["b"])
         self.assertEqual(g["psych"]["assets"]["b"]["source"],2)
 
+    def test_distinct_aversions_create_distinct_later_worlds_not_just_labels(self):
+        from game_engine import initialize
+        isolated=initialize({"edition":"v37"})
+        text=ANSWER.copy()
+        text[4]="最讨厌与外界隔离，联系谁也没有回音"
+        text[5]="最怕冒名顶替"
+        for answer in text:act(isolated,answer)
+        for answer in PROBES:act(isolated,answer)
+        watched=prep()
+        act(isolated,"C")
+        act(watched,"C")
+        self.assertEqual(isolated["psych"]["cost"]["kind"],"isolation")
+        self.assertEqual(watched["psych"]["cost"]["kind"],"surveillance")
+        self.assertIn("隔离",scene(isolated)["body"])
+        self.assertIn("查看每次联系",scene(watched)["body"])
+        for g in (isolated,watched):
+            act(g,"A")
+            act(g,"A")
+            self.assertEqual(g["stage"],4)
+        self.assertGreaterEqual(isolated["psych"]["distance"],2)
+        self.assertEqual(isolated["psych"]["replacement"],0)
+        self.assertGreaterEqual(watched["psych"]["replacement"],2)
+        self.assertIn("返回的线路",scene(isolated)["body"])
+        self.assertIn("署名处是空白",scene(watched)["body"])
+        for g in (isolated,watched):
+            act(g,"A")
+            act(g,"B")
+        self.assertEqual(isolated["ending"]["kind"],"LAST_CALL")
+        self.assertEqual(watched["ending"]["kind"],"IMPOSTOR")
+
 if __name__=="__main__":
     unittest.main()
