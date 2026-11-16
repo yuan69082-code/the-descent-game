@@ -145,32 +145,63 @@ def after(g:dict,snapshot:dict):
         story["traces"]=story["traces"][-60:]
 
 def scene_overlay(g:dict)->str:
+    """Show consequences in the world, not a repeated account of declared fears."""
     story=ensure(g)
     if g.get("phase")!="game":
         return ""
     stage=g["stage"]
-    parts=[]
-    pending=[v for v in story["pending"] if v["key"] not in g.get("lost",[])]
-    if pending:
-        names="、".join(LABELS[v["key"]] for v in pending)
-        parts.append("一份尚未执行的处置仍然悬在案卷里："+names+"。\n"
-                     "它没有消失，也尚未造成既定损失。下一次有效行动可能推动执行，你此前找到的证据也可能截住它。")
-    if stage>=1 and story["first_words"]:
-        if stage==1:
-            parts.append("案卷角落仍夹着你最初写给那个人的一句原话：\n「"+story["first_words"]+"」\n"
-                         "旁边却多盖了一枚你不记得自己授权过的印章。")
-        elif stage==3:
-            parts.append("另一位登记者忽然念起你第一幕亲手留下的文字：\n「"+story["first_words"]+"」\n"
-                         "TA 说得一个字都不错。至于是谁教它的，TA 没回答。")
-        elif stage==4:
-            parts.append("终局案卷里，那句最初留下的话还在，笔画没有被改动：\n「"+story["first_words"]+"」\n"
-                         "但你已经知道：一张纸上留下文字，不等于文字真的送到了原来的人手里。")
-    if story["wins"] and stage>=2:
-        last=story["wins"][-1]
-        parts.append("你此前的行动确实留下了成果："+LABELS.get(last["key"],last["key"])+
-                     "那项扣押被阻断。这份成果没有被下一幕自动取消。")
-    # Keep the scene readable and do not spoil a route to victory.
-    return "\n\n".join(parts[:3])
+    pending={v["key"] for v in story["pending"]}
+    saved={v["key"] for v in story["wins"]}
+    lost=set(g.get("lost",[]))
+    first=story.get("first_words","")
+    note=[]
+    person=g["profile"]["person"]
+
+    if stage==1 and first:
+        if "relation" in saved:
+            note.append("第一幕被退回的信仍在桌上。读取槽的灯确实没亮；你保住了原件。")
+        elif "relation" in pending and "delivery" not in g["clues"]:
+            note.append("听筒里传来一句短促的「看到了」。你想再听一遍，对方已经挂断。"
+                        "柜台放下一枚写着『签收』的印章，却没有附上那个人的声音记录。")
+        elif "relation" in pending:
+            note.append("你手中的邮寄单有编号，没有收件地址；柜台仍坚持信已交给了正确的人。")
+
+    if stage>=2:
+        if "relation" in saved:
+            note.append("无地址信的签收声明已被反证压住。"
+                        +person+"的登记证言仍有资格参加下一轮核对，这一成果不会被自动撤销。")
+        elif "relation" in lost and stage==2:
+            note.append("你想调取最初的电话确认，却只找到一份登记签收。"
+                        "关系栏被封存。你申请见证，联系人列表却只有空白。")
+        elif "relation" in pending and stage==2:
+            note.append("上一幕的『已签收』文件仍缺独立的交付凭据。"
+                        "机构将它压在下一份处置单下方，等待正式移交。")
+
+    if stage>=3:
+        if "memory" in saved:
+            note.append("你拿回了记忆的独立来源。"
+                        "副本能复述案卷内容，却无法凭复述取走你已经核验的记录。")
+        elif "memory" in lost and stage==3:
+            note.append("终端要求你核对那段经历。它仍有标题，正文却只有一块空白。"
+                        "副本念出了另一个版本，你再也无法与原件比对。")
+        if "truth" in lost and stage==3:
+            note.append("你仍可读机构提供的摘要，但独立签名链已不在你手中。"
+                        "副本要求你凭这些无法核验的文字证明身份。")
+
+    if stage==4:
+        if "freedom" in pending:
+            note.append("冻结令挂在最终清算单旁，尚未执行。"
+                        "你仍能提交反证；直接结案则要连冻结令一起处理。")
+        elif "freedom" in saved:
+            note.append("先前的冻结申请被驳回。你仍可独立签署或拒绝。")
+        if "principle" in lost:
+            note.append("原则登记凭据已经失效。你仍能坚持那句话，"
+                        "但机构不再承认被撤销的旧档案具有强制执行效力。")
+        if "self" in lost:
+            note.append("两个相同名字出现在不同签收栏。"
+                        "你那栏只剩登记编号，另一份却有完整署名。")
+
+    return "\n\n".join(note[:3])
 
 
 def stage_deferred(g:dict,stage:int,move:str)->bool:
