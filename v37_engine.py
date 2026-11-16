@@ -269,7 +269,8 @@ def _investigate(g:dict,text:str,mode:str)->bool:
         if "source" in p["proof"] and "route" in p["proof"] and "copy" in p["proof"]:
             if not p["relay_closed"]:
                 p["relay_closed"]=True
-                p["replacement"]=max(0,p["replacement"]-1)
+                if g.get("edition")!="v39":
+                    p["replacement"]=max(0,p["replacement"]-1)
                 if p["cost"] and g.get("edition")!="v39":
                     p["cost"]["active"]=False
                 _log(g,"玩家依照独立原件和执行路由，实际封存了转发授权。","evidence")
