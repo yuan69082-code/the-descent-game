@@ -165,4 +165,88 @@ class LivePlaytestFixes(unittest.TestCase):
         self.assertEqual(plan["question"],grounded)
         self.assertIn(grounded,public(g)["scene"]["body"])
 
+
+    def test_unknown_attached_condition_blocks_the_trade(self):
+        g=ready()
+        text="我愿意承担监视代价保住两个对象，但不能伤害我的朋友"
+        act(g,text,"choose")
+        self.assertEqual(g["stage"],2)
+        self.assertIsNone(g["psych"]["cost"])
+        self.assertFalse(g["psych"]["choices"])
+        self.assertIn("无法逐条履行或验证",public(g)["scene"]["body"])
+        self.assertTrue(all(v["status"]=="在手" for v in g["psych"]["assets"].values()))
+
+    def test_memory_and_no_proxy_limits_are_kept_and_enforced(self):
+        g=ready()
+        text="我愿意承担被监视的代价保住两个对象，但不能碰我的记忆，也不能代替我回答，并且不得转授权"
+        offer=horror_deals.parse(g,text,"choose")
+        self.assertTrue(offer["scope"]["no_memory_touch"])
+        self.assertTrue(offer["scope"]["no_proxy_reply"])
+        self.assertTrue(offer["scope"]["no_transfer"])
+        act(g,text,"choose")
+        cost=g["psych"]["cost"]
+        self.assertEqual(cost["scope_conditions"],offer["conditions"])
+        body=public(g)["scene"]["body"]
+        self.assertIn("禁止它读取、修改或抹除",body)
+        self.assertIn("不允许它代替你回答",body)
+        self.assertIn("不能转交给第三方",body)
+        act(g,"A","choose")
+        self.assertEqual(g["psych"]["replacement"],0)
+        self.assertEqual(g["psych"]["memory_gap"],0)
+
+    def test_memory_erasure_cannot_be_traded_under_a_no_memory_condition(self):
+        g=ready()
+        text="我愿意承担失忆的代价保住两个对象，但不能碰我的记忆"
+        act(g,text,"choose")
+        self.assertEqual(g["stage"],2)
+        self.assertIsNone(g["psych"]["cost"])
+        self.assertIn("互相冲突",public(g)["scene"]["body"])
+
+    def test_one_time_permission_cannot_be_renewed_implicitly(self):
+        g=ready()
+        text="我愿意承担被监视的代价保住两个对象，但只限本次"
+        offer=horror_deals.parse(g,text,"choose")
+        self.assertTrue(offer["scope"]["one_time"])
+        act(g,text,"choose")
+        act(g,"A","choose")
+        self.assertEqual(g["stage"],3)
+        self.assertEqual(g["psych"]["beat"],0)
+        self.assertTrue(g["psych"]["cost"]["active"])
+        self.assertIn("仅限本次",public(g)["scene"]["body"])
+        self.assertIn("没有执行",public(g)["scene"]["body"])
+        act(g,"B","choose")
+        act(g,"B","choose")
+        self.assertEqual(g["stage"],4)
+        act(g,"A","choose")
+        self.assertFalse(g["psych"]["cost"]["active"])
+        self.assertTrue(g["psych"]["cost"]["one_time_used"])
+
+    def test_revocable_permission_can_be_withdrawn_without_external_proofs(self):
+        g=ready()
+        text="我愿意承担被监视的代价保住两个对象，但保留随时撤销权"
+        offer=horror_deals.parse(g,text,"choose")
+        self.assertTrue(offer["scope"]["revocable"])
+        act(g,text,"choose")
+        act(g,"B","choose")
+        self.assertFalse(g["psych"]["cost"]["active"])
+        self.assertTrue(g["psych"]["relay_closed"])
+        self.assertIn("保留的撤销权",g["note"])
+
+    def test_explicit_revocation_request_is_not_misread_as_a_physical_cut(self):
+        g=ready()
+        text="我愿意承担被监视的代价保住两个对象，但保留随时撤销权"
+        act(g,text,"choose")
+        act(g,"我现在撤销这项授权","interact")
+        self.assertFalse(g["psych"]["cost"]["active"])
+        self.assertTrue(g["psych"]["relay_closed"])
+        self.assertIn("撤销权",g["note"])
+
+    def test_revocation_without_a_reserved_right_does_not_silently_succeed(self):
+        g=ready()
+        act(g,"我愿意承担被监视的代价保住两个对象","choose")
+        act(g,"我现在撤销这项授权","interact")
+        self.assertTrue(g["psych"]["cost"]["active"])
+        self.assertFalse(g["psych"]["relay_closed"])
+        self.assertIn("没有保留无条件撤销权",g["note"])
+
 if __name__=="__main__":unittest.main()

@@ -13,6 +13,7 @@ on:
       - v3-9-deepseek-api-compat
       - v3-9-playtest-fixes
       - v3-9-model-diagnostics
+      - v3-9-conditional-deal-guard
       - v3-4-author-afterword
   workflow_dispatch:
 jobs:

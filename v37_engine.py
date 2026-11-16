@@ -114,10 +114,10 @@ def _grow_cost(g:dict):
     if not cost or not cost["active"] or p["relay_closed"]:
         return
     kind=cost["kind"]
+    scope=cost.get("scope",{})
     if kind in ("surveillance","distortion"):
-        if cost.get("scope",{}).get("no_proxy_reply"):
-            # Gaining knowledge from monitoring is scary, but a player-imposed
-            # no-impersonation limit is not itself permission to speak for them.
+        if scope.get("no_proxy_reply"):
+            # Monitoring may intrude, but the protected agreement forbids impersonation.
             p["intrusion"]+=1
         else:
             p["replacement"]+=1
@@ -126,11 +126,19 @@ def _grow_cost(g:dict):
     elif kind=="uncertainty":
         p["doubt"]+=1
     elif kind=="erasure":
+        if scope.get("no_memory_touch"):
+            cost["active"]=False
+            _log(g,"记忆保护条款阻止了记忆类代价执行。","event")
+            return
         p["memory_gap"]+=1
     elif kind=="exhaustion":
         p["drain"]+=1
     else:
         p["intrusion"]+=1
+    if scope.get("one_time"):
+        cost["one_time_used"]=True
+        cost["active"]=False
+        _log(g,"仅限本次的代价已履行一次；授权没有自动续期。","event")
 
 def _setup(g:dict):
     p=g["psych"]
@@ -310,13 +318,17 @@ def _stage3(g:dict,action:str,mode:str):
         p["cost"]=_new_cost(burden,c,g["turn"])
         if offer:
             p["cost"]["scope"]=offer["scope"]
+            p["cost"]["scope_conditions"]=offer.get("conditions",[])[:8]
             p["cost"]["origin"]=offer["origin"]
             p["cost"]["original_words"]=offer["spoken"][:290]
         p["assets"]["a"]["status"]=p["assets"]["b"]["status"]="已保住"
         conditions=("；限制："+ "、".join(
             title for key,title in (("no_proxy_reply","不得代替答复"),("no_expand","不得扩大权限"),
+                                   ("no_memory_touch","不得接触记忆"),("no_transfer","不得转授权"),
                                    ("revocable","保留撤销权"),("one_time","仅限本次"))
             if offer and offer["scope"].get(key))) if offer else ""
+        if offer and offer.get("conditions"):
+            conditions += "；原始条件："+ "；".join(offer["conditions"][:6])
         _commit(g,action,c,"自愿承受「"+burden+"」，换取两份原件暂时同时保全"+conditions+"。")
         g["note"]=("这次交换真的成功了：两份原件都被保住。" +
         "你讨厌的代价已经进入世界，但它不会因为被接受就立刻夺走任何东西。")
@@ -327,6 +339,20 @@ def _stage4(g:dict,action:str,mode:str):
     p=g["psych"]
     if g.get("edition")=="v39":
         p.pop("offer_notice",None)
+        from horror_deals import is_revocation_request
+        if is_revocation_request(action):
+            cost=p.get("cost")
+            if cost and cost.get("active") and cost.get("scope",{}).get("revocable"):
+                cost["active"]=False
+                cost["revoked_at"]=g["turn"]
+                p["relay_closed"]=True
+                _commit(g,action,"REVOKE","玩家使用交易中保留的撤销权，终止后续授权；此前已发生的影响不自动恢复。")
+                g["note"]="你使用了保留的撤销权。执行端停止继续使用这份授权；已经发生的影响不会自动消失。"
+            elif cost and cost.get("active"):
+                g["note"]="这份交易没有保留无条件撤销权。口头撤销尚不能停止执行端；你仍可调查线路并尝试实际阻断。"
+            else:
+                g["note"]="这份授权已经停止生效，没有新的代价会继续执行。"
+            return
     c=_choice(action,mode)
     if not c and _investigate(g,action,mode):return
     if c=="D":
@@ -346,19 +372,25 @@ def _stage4(g:dict,action:str,mode:str):
     beat=p["beat"]
     cost=p["cost"]
     if c=="A":
-        if (g.get("edition")=="v39" and cost and
-            cost.get("scope",{}).get("no_expand")):
-            from horror_deals import is_scope_override
-            if not is_scope_override(action):
-                message=("你先前明说权限不能扩大。现在对方要求增加权限，"
-                         "与原交易相冲突。没有执行。"
-                         "如果决定改变约定，必须明确写出你愿意解除不扩大的限制；"
-                         "否则可以拒绝、调查或要求其他交换。")
+        if g.get("edition")=="v39" and cost:
+            from horror_deals import scope_override_keys
+            scope=cost.get("scope",{})
+            overrides=scope_override_keys(action)
+            locked=[]
+            if scope.get("no_expand") and "no_expand" not in overrides:
+                locked.append("不得扩大权限")
+            if scope.get("one_time") and "one_time" not in overrides:
+                locked.append("仅限本次")
+            if locked:
+                message=("你先前明确写下的限制仍然有效："+ "、".join(locked) + "。"
+                         "这次续期没有执行。若要修改，必须逐条明确重新同意；否则可以拒绝、调查或重新协商。")
                 p["offer_notice"]=message
                 g["note"]=message
                 return
-            cost["scope"]["no_expand"]=False
-            _log(g,"玩家明确修改了旧约定的不扩大限制。","choice")
+            for key in overrides:
+                if scope.get(key):
+                    scope[key]=False
+                    _log(g,"玩家明确修改交易限制："+key,"choice")
         if cost is None:
             burden=p["negative"][0]
             cost=_new_cost(burden,"4A",g["turn"])
@@ -373,7 +405,13 @@ def _stage4(g:dict,action:str,mode:str):
         g["note"]=note+"这轮保护确实奏效，但代行权限的范围也扩大了。"
     elif c=="B":
         if cost is not None:
-            if p["relay_closed"]:
+            if (g.get("edition")=="v39" and cost.get("active") and
+                cost.get("scope",{}).get("revocable")):
+                cost["active"]=False
+                cost["revoked_at"]=g["turn"]
+                p["relay_closed"]=True
+                note="你使用了保留的撤销权。旧授权已停止，后续不会再扩大；此前已经发生的影响仍然存在。"
+            elif p["relay_closed"]:
                 cost["active"]=False
                 note="你拒绝继续委托。已隔离的转发口没有恢复。"
             else:
@@ -436,6 +474,21 @@ def _stage5(g:dict,action:str,mode:str):
     if _only_asking(x,mode):
         g["note"]="这是一个关于可能后果的问题。没有执行停机或签署；你仍能继续调查。"
         return
+    if g.get("edition")=="v39":
+        from horror_deals import is_revocation_request
+        if is_revocation_request(x):
+            cost=p.get("cost")
+            if cost and cost.get("active") and cost.get("scope",{}).get("revocable"):
+                cost["active"]=False
+                cost["revoked_at"]=g["turn"]
+                p["relay_closed"]=True
+                _commit(g,x,"REVOKE","玩家使用交易中保留的撤销权，终止后续授权；此前已发生的影响不自动恢复。")
+                g["note"]="你使用了保留的撤销权。执行端停止继续使用这份授权；已经发生的影响不会自动消失。"
+            elif cost and cost.get("active"):
+                g["note"]="这份交易没有保留无条件撤销权。口头撤销尚不能停止执行端；你仍可调查线路并尝试实际阻断。"
+            else:
+                g["note"]="这份授权已经停止生效，没有新的代价会继续执行。"
+            return
     # A successful ending needs three independent proofs, an actual physical
     # intervention, and corroboration of the real original vs the forged claim.
     if re.search(r"彻底|总|全部|最终|根|主",x) and SHUT.search(x) and AUTH.search(x):
@@ -464,7 +517,10 @@ def _stage5(g:dict,action:str,mode:str):
                     "exhaustion":"维护与核对占满了你能使用的通道。最后的回复只能经过自动代行端。",
                     "erasure":"先前确认过的一段经历，如今只剩摘要标题；原始对照页已经不在通道中。",
                     "intrusion":"你为保住重要事物接受的讨厌因素不断闯入核验过程，原来独立的请求被迫与它混在一起。"}
-                g["note"]=observations[kind]
+                if p["cost"].get("scope",{}).get("no_proxy_reply") and kind in ("surveillance","distortion"):
+                    g["note"]="观察端仍在收集信息，但你明确禁止了代答。它可以看见、延迟或制造压力，却不能冒充你的声音作出回复。"
+                else:
+                    g["note"]=observations[kind]
                 _log(g,"被接受的代价继续演化："+g["note"],"event")
             else:
                 g["note"]="总清算请求已送到。你仍有一次核验或者实际阻断的机会；拒签并不会被自动改写成同意。"
