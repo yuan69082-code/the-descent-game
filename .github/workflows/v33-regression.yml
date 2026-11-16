@@ -10,6 +10,7 @@ on:
       - v3-7-five-act-dynamic-fear
       - v3-8-model-horror-director
       - v3-9-backstage-planner
+      - v3-9-deepseek-api-compat
       - v3-4-author-afterword
   workflow_dispatch:
 jobs:
