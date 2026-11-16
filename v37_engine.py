@@ -349,6 +349,10 @@ def _commit(g:dict,what:str,choice:str,detail:str=""):
 
 def _stage3_v39(g:dict,action:str,mode:str):
     p=g["psych"]
+    if (action or "").strip().endswith(("?","？")) and not re.search(
+        r"我(?:明确)?(?:接受|同意|选择|选|决定)|我愿意(?:承担|接受)",action):
+        g["note"]="你还在询问，没有接受完整交易。"
+        return
     from horror_deals import parse as interpret_offer
     p.pop("offer_notice",None)
     offer=interpret_offer(g,action,mode)
