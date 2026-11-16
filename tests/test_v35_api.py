@@ -35,8 +35,8 @@ class ApiV35(unittest.TestCase):
         response=self.client.get("/")
         self.assertEqual(response.status_code,200)
         self.assertIn("THE DESCENT",response.text)
-        self.assertIn("V3.6",response.text)
-        self.assertEqual(self.client.get("/healthz").json()["version"],"3.6")
+        self.assertIn("V3.7",response.text)
+        self.assertEqual(self.client.get("/healthz").json()["version"],"3.7")
         js=self.client.get("/static/client.js").text
         self.assertIn("current.phase==='epilogue'",js)
         self.assertIn("保存最后一句",js)
@@ -83,7 +83,7 @@ class ApiV35(unittest.TestCase):
 
     def test_ai_text_path_auto_turn_with_version_protection_and_no_source_leak(self):
         start=self.client.get("/ai/start",params={
-            "agree":"1",
+            "agree":"1", "legacy":"1",
             **{k:PROFILE[k] for k in ("name","identity","person","bond","memory","principle","fear")},
             "rank":",".join(RANK)
         })
