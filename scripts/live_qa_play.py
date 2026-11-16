@@ -1,3 +1,4 @@
+# MODEL-SMOKE-CHECK-2
 """Short live model smoke. Only calls publicly exposed game routes; no secrets."""
 import json,urllib.request,urllib.error,sys,time
 ROOT="https://the-descent-game.onrender.com"
