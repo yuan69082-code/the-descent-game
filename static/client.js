@@ -5,6 +5,7 @@
   const key='descent-session-v2';
   let token=localStorage.getItem(key)||'';
   let current=null;
+  let modelAvailable=false;
   function el(tag,cls,txt){const n=document.createElement(tag);if(cls)n.className=cls;if(txt!==undefined)n.textContent=txt;return n;}
   function clear(){root.replaceChildren();window.scrollTo({top:0,behavior:'instant'});}
   function toast(msg){document.querySelector('.toast')?.remove();const n=el('div','toast',msg);document.body.append(n);setTimeout(()=>n.remove(),4300);}
@@ -17,17 +18,24 @@
     if(!res.ok)throw Error(typeof out.detail==='string'?out.detail:'游戏操作失败 ('+res.status+')');
     return out;
   }
-  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v39'?'V3.9 / '+String(current?.stage||1).padStart(2,'0'):current?.edition==='v38'?'V3.8 / OLD SESSION':current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
+  function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v39'?String(current?.stage||1).padStart(2,'0'):current?.edition==='v38'?'V3.8 / OLD SESSION':current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
   function showIntro(){clear();signal.textContent='NO SIGNAL';
     const start=el('section','start');
     start.append(el('div','eyebrow','THE DESCENT · V3.9'));
     const h=el('h1','hero');h.textContent='这是一场恐怖游戏。';start.append(h);
     start.append(el('p','intro','你确定要开始吗？'));
+    const modeLabel=el('label','smallLabel','本局模式');
+    const modePicker=el('select','control');modePicker.id='modelMode';
+    const freeOption=el('option','','免费模式 · 不调用语义模型');freeOption.value='free';modePicker.append(freeOption);
+    const modelOption=el('option','',modelAvailable?'语义模型模式 · 理解自然语言并动态策划':'语义模型模式 · 当前不可用（未配置）');
+    modelOption.value='model';modelOption.disabled=!modelAvailable;modePicker.append(modelOption);
+    start.append(modeLabel,modePicker);
+    start.append(el('p','help',modelAvailable?'选择后本局固定使用该模式，不会中途切换。':'当前服务器未配置语义模型，仍可使用完整免费模式。'));
     const label=el('label','consent');const cb=el('input');
     cb.type='checkbox';label.append(cb,el('span','','我决定进入。'));start.append(label);
     const go=button('开始游戏 →',async()=>{
       go.disabled=true;
-      try{const r=await api('new',{method:'POST',body:JSON.stringify({profile:{edition:'v39'}})});
+      try{const r=await api('new',{method:'POST',body:JSON.stringify({profile:{edition:'v39',model_mode:modePicker.value}})});
         token=r.token;localStorage.setItem(key,token);current=r.state;showGame();}
       catch(e){toast(e.message);go.disabled=!cb.checked;}
     },'btn primary');
@@ -111,6 +119,11 @@
   async function endSession(){if(!confirm('确定终止本局？游戏内一切虚构处置将立即停止。'))return;try{current=await api('action',{method:'POST',body:JSON.stringify({action:'结束游戏',version:current.version})});showGame();}catch(e){toast(e.message);}}
   async function resetSession(){if(token)await api('session',{method:'DELETE'});token='';localStorage.removeItem(key);current=null;showIntro();}
   async function deleteGame(){if(!confirm('永久删除服务器上的本局问卷与记录？此操作不能撤销。'))return;try{await resetSession();toast('本局档案已删除。');}catch(e){toast('删除失败：'+e.message);}}
-  async function bootstrap(){if(!token){showIntro();return;}try{current=await api('state');showGame();}catch(e){token='';localStorage.removeItem(key);showIntro();toast('上次的会话已失效，请开始新的一局。');}}
+  async function bootstrap(){
+    try{const health=await fetch('/healthz',{headers:{'Accept':'application/json'}});if(health.ok){const data=await health.json();modelAvailable=!!data.model_configured;}}catch(e){}
+    if(!token){showIntro();return;}
+    try{current=await api('state');showGame();}
+    catch(e){token='';localStorage.removeItem(key);showIntro();toast('上次的会话已失效，请开始新的一局。');}
+  }
   bootstrap();
 })();
