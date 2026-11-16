@@ -89,6 +89,14 @@ def protected(g:dict,key:str)->bool:
                      "truth" not in lost))
     if key=="principle":
         return bool(cp.get("ownership_claim") or cp.get("verified_false_delivery"))
+    if key=="self":
+        return bool(cp.get("verified_false_registration") or
+                    ("rival_phrase" in clues and cp.get("formal_objection") and fl.get("evidence_copy")))
+    if key=="truth":
+        return bool(cp.get("verified_false_delivery") or
+                    ("authority" in clues and cp.get("formal_objection") and fl.get("evidence_copy")))
+    if key=="future":
+        return bool(cp.get("formal_objection") and fl.get("evidence_copy") and "authority" in clues)
     return False
 
 
@@ -189,6 +197,11 @@ def scene_overlay(g:dict)->str:
                         "副本要求你凭这些无法核验的文字证明身份。")
 
     if stage==4:
+        if first and "memory" not in lost and ("truth" not in lost or g["flags"].get("evidence_copy")):
+            note.append("清算单背面还留着第一幕那行真正由你提交的字：『"+first[:180]+"』。"
+                        "这行文字与上面的官方摘要并排放着，没有替你回答哪一个才算送达。")
+        elif first and "memory" in lost:
+            note.append("第一幕的信还在清算单背面，但你此刻拿不到它的原始文本来核对。")
         if "freedom" in pending:
             note.append("冻结令挂在最终清算单旁，尚未执行。"
                         "你仍能提交反证；直接结案则要连冻结令一起处理。")
@@ -223,7 +236,7 @@ def stage_deferred(g:dict,stage:int,move:str)->bool:
         existing={x["key"] for x in ensure(g)["pending"]+ensure(g)["wins"]}
         key=next((x for x in [active_focus(g),*g["profile"]["rank"]]
                   if x not in g.get("lost",[]) and x not in existing and x!="principle"),None)
-        if key in ("relation","memory","freedom","principle"):
+        if key in LABELS:
             return queue(g,key,"机构试图将先前拒签产生的担保责任转嫁给此项凭据。",2)
     if stage==3 and move in ("choice_B","refuse"):
         queue(g,"freedom","双重登记纠纷未获得足够独立反证；行动资格冻结令执行。",2)
