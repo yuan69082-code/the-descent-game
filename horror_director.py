@@ -66,12 +66,22 @@ def _completion(messages,max_tokens):
         return None
     try:
         import httpx
+        endpoint=_endpoint()
+        payload={"model":os.environ["HORROR_LLM_MODEL"].strip(),
+                 "messages":messages,"temperature":0.85}
+        # Official DeepSeek Chat Completions accepts max_tokens, not the
+        # OpenAI-specific max_completion_tokens. Keep the other providers intact.
+        if urlparse(endpoint).hostname=="api.deepseek.com":
+            planning=max_tokens>=400
+            payload["max_tokens"]=max(3072 if planning else 1024,max_tokens*4)
+            payload["reasoning_effort"]="high" if planning else "low"
+            payload["response_format"]={"type":"json_object"}
+        else:
+            payload["max_completion_tokens"]=max(320,max_tokens)
         with httpx.Client(timeout=httpx.Timeout(25,connect=5),follow_redirects=False) as client:
-            response=client.post(_endpoint(),headers={
+            response=client.post(endpoint,headers={
                 "Authorization":"Bearer "+os.environ["HORROR_LLM_API_KEY"].strip(),
-                "Content-Type":"application/json"},json={
-                "model":os.environ["HORROR_LLM_MODEL"].strip(),
-                "messages":messages,"max_completion_tokens":max(320,max_tokens),"temperature":0.85})
+                "Content-Type":"application/json"},json=payload)
         response.raise_for_status()
         answer=response.json()["choices"][0]["message"]["content"]
         if isinstance(answer,list):
