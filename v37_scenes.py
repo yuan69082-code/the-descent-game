@@ -87,7 +87,9 @@ def scene(g:dict)->dict:
                     "distortion":"代行者负责转述你的请求。它说这是为了保护原件，可转述内容开始与你发出去的不一样。",
                     "isolation":"两份原件被安全地隔离了。与此同时，你需要经过一个越来越狭窄的通道才能碰到它们。",
                     "uncertainty":"黑箱确实保住了两份原件，但每次询问来源，它只回答『处理完成』。",
-                    "exhaustion":"两份原件都在，但维护它们的额外负担挤占了你亲自核对的机会。"}
+                    "exhaustion":"两份原件都在，但维护它们的额外负担挤占了你亲自核对的机会。",
+                    "erasure":"两份原件还在，但你用来确认它们的旧回忆被逐步压成无法比对的摘要。",
+                    "intrusion":"原件仍在，可你答应承担的那件讨厌事情开始频繁出现在每一次核验里。"}
                 opening=("第三幕的交换奏效了。两份原件都还在。\n\n"
                          "你选择承担「"+ca+"」。"+effects[cost["kind"]])
             elif any(x["status"]=="已交出" for x in p["assets"].values()):
@@ -149,6 +151,9 @@ def scene(g:dict)->dict:
             response=("你还在维护两份原件，可核对的机会却越来越少。"
                       "当你终于能读到回复时，它已经经过多轮自动转发，"
                       "没有人能告诉你第一位答复者是谁。")
+        elif cost and not p["relay_closed"] and p.get("memory_gap",0)>=2:
+            response=("当初的回忆仍有标题，你却只能拿到一份无法核验的摘要。"
+                      "记得原来那段内容的人已经没有能够交给你的原件。")
         elif cost and p["replacement"]>=2 and not p["relay_closed"]:
             response=("你请求另一个确认。回复很快出现，像之前一样熟悉。\n"
                       "只有署名处是空白。\n\n"
@@ -228,7 +233,10 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
             "你第一幕的原话仍是原话；第三幕的真实选择也未被改写。"
         )
     cost=p.get("cost")
-    replaced=bool(cost and p["replacement"]>=2 and not p["relay_closed"])
+    # The later use of a delegated channel is not proof that the player
+    # affirmatively renewed or shared that permission in chapter four.
+    renewed=any(c["act"]==4 and c["choice"]=="A" for c in p["choices"])
+    replaced=bool(cost and renewed and p["replacement"]>=2 and not p["relay_closed"])
     orig=[x for x in p["consequences"] if x["source"]=="actual_choice"]
     if cost and not p["relay_closed"] and p.get("distance",0)>=2:
         kind="LAST_CALL"
@@ -236,6 +244,8 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
         kind="ORIGINLESS"
     elif cost and not p["relay_closed"] and p.get("drain",0)>=2:
         kind="VOID"
+    elif cost and not p["relay_closed"] and p.get("memory_gap",0)>=2:
+        kind="ERASED_MEMORY"
     elif replaced and p["objection"]:
         kind="SHARED"
     elif replaced:
@@ -280,6 +290,9 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     elif cost and kind=="VOID":
         last=("维护没有停止，投入也没有停止。"
               "最后连你想保住的原件都只剩下『仍需处理』的空白任务。")
+    elif cost and kind=="ERASED_MEMORY":
+        last=("你以为自己保存了重要之物，付出的却是检验它的旧回忆。"
+              "熟悉的标题还在，原件不在；你无法确认后来那份摘要究竟变了哪一句。")
     elif replaced:
         last=("最后一份回应仍然使用你熟悉的格式。"
               "可它的署名只剩一格空白；代行者承认自己读取过先前的记录，"

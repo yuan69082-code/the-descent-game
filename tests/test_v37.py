@@ -253,7 +253,7 @@ class DynamicHorrorV37(unittest.TestCase):
         # Each path is played through the real public action engine. No flags
         # are force-set to make an ending appear reachable in a unit test.
         configs={
-            "VOID":("C","AA","A",None,"香菜"),
+            "VOID":("C","AA","A",None,"长期精力透支"),
             "IMPOSTOR":("C","AA","A",None,None),
             "SHARED":("C","AC","A",None,None),
             "SILENCED":("C","BC","A",None,None),
@@ -265,14 +265,16 @@ class DynamicHorrorV37(unittest.TestCase):
             "CUSTODIAN":("A","BB","A","route",None),
             "FILED":("C","BC","A","copy",None),
             "LAST_CALL":("C","AA","A",None,"与世界隔离"),
-            "ERASED_MEMORY":("D","BB","A",None,None),
+            "ERASED_MEMORY":("D","BB","A",None,"__SECOND_MEMORY__"),
             "CLEAN_EXIT":("E","BB","A","independent",None),
         }
         endings={}
         for expected,(first,middle,final,proof,custom_cost) in configs.items():
             g=initialize({"edition":"v37"})
             answer=ANSWER.copy()
-            if custom_cost:
+            if custom_cost=="__SECOND_MEMORY__":
+                answer[5]="我害怕被迫遗忘重要记忆"
+            elif custom_cost:
                 answer[4]="我讨厌"+custom_cost
             for x in answer:act(g,x)
             for x in PROBES:act(g,x)

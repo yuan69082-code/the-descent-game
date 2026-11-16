@@ -64,7 +64,7 @@ def new_game()->dict:
             "a":"","b":"","negative":[],"assets":{},
             "cost":None,"consequences":[],"choices":[],
             "beat":0,"proof":[],"relay_closed":False,"objection":False,
-            "source_copy":False,"replacement":0,"distance":0,"doubt":0,"drain":0,"pressure":0,
+            "source_copy":False,"replacement":0,"distance":0,"doubt":0,"drain":0,"memory_gap":0,"intrusion":0,"pressure":0,
             "first_words":"","last_action":None,"last_checked":False,
             "end_reason":"","official_copy":None,"turn_limit":42,
         }
@@ -96,10 +96,14 @@ def _new_cost(label:str,choice:str,turn:int)->dict:
         kind="distortion"
     elif re.search(r"监视|监控|窥视|控制|强迫|被操纵|被支配|监管",label):
         kind="surveillance"
+    elif re.search(r"遗忘|失忆|抹除记忆|失去记忆|清除经历|记忆被删除",label):
+        kind="erasure"
     elif re.search(r"未知|不确定|无法确认|混乱|不信任|失控|无依据",label):
         kind="uncertainty"
-    else:
+    elif re.search(r"疲惫|疲劳|精力|透支|耗尽|劳累|维护负担|无休止",label):
         kind="exhaustion"
+    else:
+        kind="intrusion"
     return {"name":label,"kind":kind,"level":1,"active":True,
             "source_choice":choice,"accepted_at":turn}
 
@@ -115,8 +119,12 @@ def _grow_cost(g:dict):
         p["distance"]+=1
     elif kind=="uncertainty":
         p["doubt"]+=1
-    else:
+    elif kind=="erasure":
+        p["memory_gap"]+=1
+    elif kind=="exhaustion":
         p["drain"]+=1
+    else:
+        p["intrusion"]+=1
 
 def _setup(g:dict):
     p=g["psych"]
@@ -409,7 +417,9 @@ def _stage5(g:dict,action:str,mode:str):
                     "distortion":"你收到了一份模仿原先语气的回复。署名栏是空白，来源却指向受托转述端。",
                     "surveillance":"监控台已能替你选择收发的消息。答复很熟悉，署名栏却只剩空白。",
                     "uncertainty":"黑箱系统仍提供结论，却已无法给出这份回复来自谁的独立记录。",
-                    "exhaustion":"维护与核对占满了你能使用的通道。最后的回复只能经过自动代行端。"}
+                    "exhaustion":"维护与核对占满了你能使用的通道。最后的回复只能经过自动代行端。",
+                    "erasure":"先前确认过的一段经历，如今只剩摘要标题；原始对照页已经不在通道中。",
+                    "intrusion":"你为保住重要事物接受的讨厌因素不断闯入核验过程，原来独立的请求被迫与它混在一起。"}
                 g["note"]=observations[kind]
                 _log(g,"被接受的代价继续演化："+g["note"],"event")
             else:
