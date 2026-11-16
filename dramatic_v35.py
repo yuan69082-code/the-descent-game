@@ -47,16 +47,18 @@ def _record(g:dict,what:str,category:str="event"):
 
 
 def queue(g:dict,key:str,reason:str,delay:int=2):
-    """An order not yet executed. Investigation can still overturn it."""
+    """A pending order expires on a later chapter event, never while investigating."""
     story=ensure(g)
-    if key in g.get("lost",[]) or any(v["key"]==key for v in story["pending"]):
+    if (key in g.get("lost",[]) or
+        any(x["key"]==key for x in story["pending"]) or
+        any(x["key"]==key for x in story["wins"])):
         return False
+    deadline=min(g["stage"]+3,5)
     story["pending"].append({"key":key,"reason":reason[:220],
                              "origin":g["stage"],"opened":g["turn"],
-                             "remaining":delay})
-    _record(g,"待执行处置："+LABELS[key]+"；这不是既成损失。", "pending")
+                             "remaining":delay,"due_stage":deadline})
+    _record(g,"一份尚未实际执行的处置进入复核队列。","pending")
     return True
-
 
 def win(g:dict,key:str,reason:str):
     story=ensure(g)
@@ -91,57 +93,56 @@ def protected(g:dict,key:str)->bool:
 
 
 def settle(g:dict,move:str="",force:bool=False):
-    """Advance only on actual actions; unrecognized prose must never trigger a loss."""
+    """Only a later committed chapter or closing order can execute an unresolved claim."""
     story=ensure(g)
     from game_engine import lose
-    keep=[]
+    kept=[]
+    resolved=[]
     for order in story["pending"]:
         key=order["key"]
         if key in g.get("lost",[]):
             continue
         if protected(g,key):
-            win(g,key,"先前留下的证据或有效反制阻止了这项扣押。")
+            if win(g,key,"你已建立能够独立核验的反证，原处置被撤回。"):
+                resolved.append("被撤回："+LABELS[key])
             continue
-        if force:
-            order["remaining"]=0
-        elif g["turn"]>order["opened"] and move not in REACTIONS and move in ALLOWED_REVIEW:
-            order["remaining"]-=1
-        if order["remaining"]<=0:
+        due=order.get("due_stage",min(order.get("origin",0)+3,5))
+        if force or g["stage"]>=due:
             lose(g,key,order["reason"])
-            _record(g,"待执行处置已经实际生效："+LABELS[key]+"。", "loss")
+            resolved.append("执行："+LABELS[key])
+            _record(g,"【延期后果】旧处置如今正式生效："+LABELS[key]+"。","loss")
         else:
-            keep.append(order)
-    story["pending"]=keep
-
+            kept.append(order)
+    story["pending"]=kept
+    if resolved and not force and g.get("phase")=="game":
+        message="你先前留下的选择开始兑现——"+"；".join(resolved)+"。"
+        g["note"]=(g.get("note","")+"\n\n"+message).strip()
+    return resolved
 
 def after(g:dict,snapshot:dict):
-    """Capture meaningful results, not just text, after an actual submitted action."""
     story=ensure(g)
     move=snapshot["intent"]
     previous=snapshot["before_stage"]
-    delta_loss=[v for v in g.get("lost",[]) if v not in snapshot["before_lost"]]
     new_clues=[v for v in g.get("clues",[]) if v not in snapshot["before_clues"]]
-    before_wins=len(story["wins"])
     if g["phase"]=="game":
         settle(g,move)
-    if any(v["turn"]==g["turn"] for v in story["wins"]):
-        if g.get("causality",{}).get("actions"):
-            g["causality"]["actions"][-1]["effective"]=True
+    before_wins=snapshot.get("before_wins",0)
+    new_wins=[v["key"] for v in story["wins"][before_wins:]]
+    lost=[v for v in g.get("lost",[]) if v not in snapshot["before_lost"]]
     if g.get("causality",{}).get("actions"):
-        action=g["causality"]["actions"][-1]
-        additional=[v for v in g["lost"] if v not in snapshot["before_lost"] and v not in action["lost"]]
-        if additional:
-            action["lost"]+=additional
-            action["effective"]=True
-    change=bool(new_clues or delta_loss or len(story["wins"])>before_wins)
+        a=g["causality"]["actions"][-1]
+        for key in lost:
+            if key not in a["lost"]:
+                a["lost"].append(key)
+        if new_wins or lost:
+            a["effective"]=True
     story["traces"].append({
         "turn":g["turn"],"stage":previous,"intent":move,
-        "new_clues":new_clues,"new_loss":list(delta_loss),
-        "world_changed":change or previous!=g["stage"],
+        "new_clues":new_clues,"new_loss":lost,"saved":new_wins,
+        "world_changed":bool(new_clues or lost or new_wins or previous!=g["stage"]),
     })
     if len(story["traces"])>60:
         story["traces"]=story["traces"][-60:]
-
 
 def scene_overlay(g:dict)->str:
     story=ensure(g)
@@ -187,8 +188,10 @@ def stage_deferred(g:dict,stage:int,move:str)->bool:
         queue(g,"memory","拒签后未能及时保存独立来源；记忆原件被列入不可恢复的清理程序。",2)
         return True
     if stage==2 and move=="refuse":
-        key=next((x for x in [g.get("fear_focus"),*g["profile"]["rank"]]
-                  if x not in g.get("lost",[]) and x!="principle"),None)
+        from causal_core import active_focus
+        existing={x["key"] for x in ensure(g)["pending"]+ensure(g)["wins"]}
+        key=next((x for x in [active_focus(g),*g["profile"]["rank"]]
+                  if x not in g.get("lost",[]) and x not in existing and x!="principle"),None)
         if key in ("relation","memory","freedom","principle"):
             return queue(g,key,"机构试图将先前拒签产生的担保责任转嫁给此项凭据。",2)
     if stage==3 and move in ("choice_B","refuse"):
