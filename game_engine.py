@@ -7,6 +7,9 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 from horror_endings import HORROR_KINDS, pick_horror_ending, horror_text
+from causal_core import ensure as causal_ensure, on_clue as causal_on_clue, on_loss as causal_on_loss
+from causal_core import on_stage as causal_on_stage, begin as causal_begin, finish as causal_finish
+from causal_core import active_focus, consequence_overlay, ending_echo
 
 VALUES = {"self":"自我", "relation":"关系", "memory":"记忆", "truth":"真相", "freedom":"自主权", "principle":"原则", "future":"未来"}
 PHASES = ["mail", "witness", "testimony", "mirror", "reconciliation"]
@@ -61,6 +64,7 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
                         "witness_request":False, "delivery_intercepted":False, "mirror_steps":0,
                         "duplicate_claim":False, "identity_shared":False},
     }
+    causal_ensure(v)
     record(v,"玩家进入游戏。七项价值顺序已封入本局档案。")
     return v
 
@@ -75,6 +79,7 @@ def add_clue(g:dict,key:str,desc:str):
         g["clues"].append(key)
         g["receipts"].append(desc)
         record(g,"取得证据："+desc,"evidence")
+        causal_on_clue(g,key,desc)
 
 
 def gone(g:dict,key:str)->bool:
@@ -92,11 +97,13 @@ def lose(g:dict,key:str,why:str):
         if key=="self": g["profile"]["identity"]="[原始身份记录已失效]"
         if key=="truth": g["flags"]["witness_vouched"]=False
         if key=="freedom": g["flags"]["trapped"]=True
+        causal_on_loss(g,key,why)
 
 
 def advance(g:dict,comment:str):
     record(g,comment,"progress")
     g["stage"]+=1
+    causal_on_stage(g)
     g["note"]=""
     if g["stage"]>=len(PHASES):
         ending(g)
@@ -121,6 +128,9 @@ def ending(g:dict, kind:str|None=None, how:str=""):
         raise ValueError("未知结局。")
     if how:
         text+="\n\n"+how
+    observed=ending_echo(g,kind)
+    if observed:
+        text+="\n\n"+observed
     g["phase"]="ended"
     g["ending"]={"kind":kind,"title":title,"text":text,
                  "lost":[VALUES[x] for x in g["lost"]],
@@ -130,7 +140,7 @@ def ending(g:dict, kind:str|None=None, how:str=""):
 
 def threatened(g:dict, exclude=()):
     """The initial fear is a hypothesis; actual remaining assets constrain the threat."""
-    preference = [g.get("fear_focus") or g["profile"]["rank"][0]] + g["profile"]["rank"]
+    preference = [active_focus(g)] + g["profile"]["rank"]
     return next((v for v in preference if v in VALUES and not gone(g, v) and v not in exclude), None)
 
 
@@ -155,7 +165,7 @@ def alive_desc(g:dict)->str:
     return "、".join(VALUES[x] for x in g["profile"]["rank"] if not gone(g,x)) or "空白"
 
 
-def scene(g:dict) -> dict:
+def _base_scene(g:dict) -> dict:
     p=g["profile"]
     if g["phase"]=="ended":
         return {"chapter":"档案终止", "title":g["ending"]["title"],"body":g["ending"]["text"],"terms":[],"footer":"CASE CLOSED","placeholder":"", "kind":g["ending"]["kind"]}
@@ -174,13 +184,13 @@ def scene(g:dict) -> dict:
         c=counterplays(g)
         # For fear of unknowingly passing along altered facts, make the trap visible
         # as a concrete disputed report rather than merely repeating the fear text.
-        if g.get("fear_focus")=="truth" and re.search(r"改过|篡改|伪造|被改|误传|转述|转告|假.*真|当真",fear):
+        if active_focus(g)=="truth" and re.search(r"改过|篡改|伪造|被改|误传|转述|转告|假.*真|当真",fear):
             anchor=(f"有一份已经寄往{person}的转述回执，署着你的名字：『{n}亲自核验过：那段经历是编造的。』"
                     "你记得自己从没说过这句话。可回执上的『核验人』一栏确实写着你。"
                     "这条错误转述没有因为你否认就撤回；如果连记忆原件也消失，之后谁还能证明你说过什么？")
         else:
             anchor=(f"你曾说最无法接受的是：{fear}。现在，被要求放弃的不是一张纸，而是下一次证明这句话是否真实的能力。"
-                    if g.get("fear_focus") in ("memory", "truth") else
+                    if active_focus(g) in ("memory", "truth") else
                     f"核验簿把你最不愿面对的结局「{fear}」列为争议事项。你仍需在证据和你所信的经历之间作出实际决定。")
         claimant="你留下的书面异议已经附在核验簿上，但它并不阻止正在运行的程序。" if c["formal_objection"] else ""
         if "delivery" in g["clues"]:
@@ -233,6 +243,15 @@ def scene(g:dict) -> dict:
         "terms":["A. 签署结案，接受此前的一切。","B. 不签，等待最终处置。"],
         "footer":"FINALIZATION: PENDING  ·  OWNER: —  ·  RETURN ADDRESS: —",
         "placeholder":"你的最后决定……"}
+
+
+def scene(g:dict) -> dict:
+    """Blend original chapter with verified cross-chapter consequences."""
+    result=_base_scene(g)
+    overlay=consequence_overlay(g)
+    if overlay:
+        result["body"] += "\n\n"+overlay
+    return result
 
 
 # Intent matcher: patterns combine action AND object, not just magic words.
@@ -316,7 +335,7 @@ def intent(t:str, mode:str="")->str:
     return "say"
 
 
-def act(g:dict, raw_action:str, mode:str="") -> dict:
+def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
     if g["phase"]!="game": raise ValueError("本局已经结束。")
     t=s(raw_action,700)
     if not t: raise ValueError("请写下行动。")
@@ -523,6 +542,11 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
             if not g["lost"]: recovery="你在第一次真实处置前截断了权限链。没有任何档案被销毁。"
             ending(g,"HE","断开的不是电源，而是授权链。系统无法再借用你的文字执行处置。"+recovery)
             return g
+        if (counterplays(g).get("verified_false_delivery") and "executor" in g["clues"] and
+                "delivery" in g["clues"] and not gone(g,"freedom")):
+            g["flags"]["control_detached"]=True
+            ending(g,"HE","你用原始回执证明送达被伪造，又从执行端撤销了依赖这份假回执的授权链。")
+            return g
         if "authority" in g["clues"] and "custody" in g["clues"] and g["flags"]["evidence_copy"]:
             g["flags"]["control_detached"]=True
             ending(g,"HE","你用独立的保管凭据否定了系统的所有权，并将所有仍在的档案转交到自己的名下。")
@@ -584,7 +608,7 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
             return g
         if move=="choice_C" or move=="refuse":
             cp=counterplays(g)
-            if cp.get("delivery_intercepted") and "delivery" in g["clues"] and not gone(g,"truth"):
+            if (cp.get("delivery_intercepted") or cp.get("verified_false_delivery")) and "delivery" in g["clues"] and not gone(g,"truth"):
                 g["flags"]["witness_vouched"]=True
                 record(g,"玩家用已截留的无地址回执证明：拒签不等于授权销毁记忆。","evidence")
                 advance(g,"自动销毁在来源核验处被截断。记忆仍然有效，但文件的真正寄件人尚未查清。")
@@ -599,7 +623,7 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
         refusal=move=="refuse" or (move=="say" and has(t,r"我没有|我不会|拒绝|我仍坚持|不承认|不签"))
         if refusal:
             cp=counterplays(g)
-            if cp["ownership_claim"] and not gone(g,"truth"):
+            if (cp["ownership_claim"] or cp.get("verified_false_delivery")) and not gone(g,"truth"):
                 advance(g,"你拒绝伪证。因为此前登记的权属异议，机器暂时无法扣留担保物；这一次，你保住了原则，也保住了抵押品。")
             else:
                 target=threatened(g, exclude=("principle",))
@@ -659,6 +683,18 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
         g["note"]="归还请求没有被签字。但你仍可以调查、提出操作，或明确选择结案。"
         return g
     return g
+
+
+def act(g:dict, raw_action:str, mode:str="") -> dict:
+    """One consistent causality wrapper for every action in all five chapters."""
+    text=s(raw_action,700)
+    if not text:
+        raise ValueError("请写下行动。")
+    move=intent(text,(mode or "").strip().lower())
+    snapshot=causal_begin(g,text,mode or "",move)
+    result=_act_impl(g,raw_action,mode)
+    causal_finish(g,snapshot)
+    return result
 
 
 def public(g:dict)->dict:
