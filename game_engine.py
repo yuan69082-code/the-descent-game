@@ -386,13 +386,17 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         return g
     if move=="review_original":
         literal=causal_ensure(g)["world"].get("signed_statement_literal")
+        is_signed=bool(literal)
+        if not literal and "story_v35" in g:
+            literal=story35.ensure(g).get("draft","")
         if not literal:
-            g["note"]="没有找到你亲手签署的原始声明。只有系统要求填写的空白格式。"
+            g["note"]="没有找到任何由你实际写下的声明原文。空白格式不是签名。"
         elif gone(g,"truth") and not g["flags"]["evidence_copy"]:
-            g["note"]="你要求调取完整原文，但目前只能获得官方摘要；原始签收链不对你开放。你尚无法核验它是否被截断。"
+            g["note"]="你要求调取原文，但机器只返回摘要；你目前没有独立的核验依据。"
         else:
-            add_clue(g,"original_declaration","本人签过的完整原文与官方摘要被保存为两份可对照的材料。")
-            g["note"]="你拿到原始声明：『"+literal[:240]+"』\n\n机构摘要只有：『当事人否认原有原则。』两份文字并不相同；机构拒绝解释删去的部分。"
+            add_clue(g,"original_declaration","你亲手写下的完整"+("已签署声明" if is_signed else "未签草稿")+"与官方摘要被并排保存。")
+            g["note"]=("你取回了"+("已签署原文" if is_signed else "尚未签署的原话")+"：『"+literal[:240]+
+                       "』\n\n官方却把它摘要为：『当事人否认原有原则。』摘要和原文并不相同。")
         mirror_tick(g)
         return g
     if move=="intercept_delivery":
@@ -679,6 +683,12 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         refusal=move=="refuse" or (move=="say" and has(t,r"我没有|我不会|拒绝|我仍坚持|不承认|不签"))
         if refusal:
             cp=counterplays(g)
+            if ("story_v35" in g and story35.ensure(g).get("draft") and
+                    "original_declaration" in g["clues"] and cp.get("formal_objection") and
+                    not gone(g,"truth")):
+                story35.win(g,"principle","未经签署的草稿不构成否认原则的有效声明，错误摘要已附异议。")
+                advance(g,"你保留了未签署草稿的完整证据；机构无法将这段原话作为自愿否认的依据。")
+                return g
             if (cp["ownership_claim"] or cp.get("verified_false_delivery")) and not gone(g,"truth"):
                 if "story_v35" in g:
                     story35.win(g,"principle","独立归属异议使拒签不再自动构成放弃。")
@@ -695,7 +705,7 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
         # An affirmative sentence is not a legal signature just because it begins
         # with '从未坚持/否认'.  Explicit submission remains risky and irreversible.
         signed=(mode=="submit" or (move=="say" and bool(re.match(
-            r"^(?:我\\s*(?:同意|决定|愿意|确认|现在)?\\s*)?(?:签署|签下|提交|写下)",t))))
+            r"^(?:我\s*(?:同意|决定|愿意|确认|现在)?\s*)?(?:签署|签下|提交|写下)",t))))
         if signed:
             lose(g,"principle","你明确签署了声明，机构据此取消你援引原原则档案的资格；真实原文仍在存档。")
             advance(g,"受益对象没有出现。窗口只返回一行：『交付人已自行完成否认。』")
