@@ -73,7 +73,7 @@
     response.append(row);pane.append(response);game.append(pane);
     const side=el('aside','side');
     const ledgerBox=el('section','sideCard');ledgerBox.append(el('div','sideHead',current.edition==='v37'?'这一局的记录':'仍然有效的资格'));
-    const ledger=el('div','ledger');current.ledger.forEach(v=>{const entry=el('div','entry'+(v.state==='失效'?' off':''));entry.append(el('span','',v.label),el('mark','',v.state));ledger.append(entry);});ledgerBox.append(ledger);side.append(ledgerBox);
+    const ledger=el('div','ledger');current.ledger.forEach(v=>{const entry=el('div','entry'+(['失效','已交出','已失去'].includes(v.state)?' off':''));entry.append(el('span','',v.label),el('mark','',v.state));ledger.append(entry);});ledgerBox.append(ledger);side.append(ledgerBox);
     const events=el('section','sideCard');events.append(el('div','sideHead','可见记录 / 最近'));
     current.events.slice().reverse().forEach(ev=>events.append(el('div','rec '+(ev.type==='loss'?'loss':ev.type==='evidence'?'evidence':''),ev.text)));
     side.append(events);

@@ -93,7 +93,9 @@ def _setup(g:dict):
 
 def _choice(text:str,mode:str="")->str:
     x=_text(text)
-    m=re.match(r"^(?:我(?:决定)?(?:选|选择)|选择|选项|选|决定选|option)?\s*([ABCDEabcde])(?=$|[\s，,。．:：、）)!！?])",x,re.I)
+    m=re.match(r"^(?:我(?:决定)?(?:选|选择)|选择|选项|选|决定选|option)\s*([ABCDEabcde])(?=$|[\s，,。．:：、）)!！?])",x,re.I)
+    if m:return m.group(1).upper()
+    m=re.match(r"^([ABCDEabcde])(?=$|[，,。．:：、）)!！?]|\s+(?=[^\x00-\x7f]))",x,re.I)
     if m:return m.group(1).upper()
     if mode=="choose":
         if re.search(r"优先.{0,8}(?:第一项|第一份|A\b)|保.{0,5}A\b|选第一",x,re.I):return "A"
@@ -118,6 +120,8 @@ def _investigate(g:dict,text:str,mode:str)->bool:
             if not p["relay_closed"]:
                 p["relay_closed"]=True
                 p["replacement"]=max(0,p["replacement"]-1)
+                if p["cost"]:
+                    p["cost"]["active"]=False
                 _log(g,"玩家依照独立原件和执行路由，实际封存了转发授权。","evidence")
                 g["note"]=("执行端已停止接受代行指令；旧档案依然存在。" +
                 "这阻断了一次继续侵占，但未解除清算系统的全部权限。")
@@ -127,7 +131,7 @@ def _investigate(g:dict,text:str,mode:str)->bool:
             g["note"]=("操作未成立：还缺可核验的原始记录、执行路由和保留在外部的独立副本。" +
             "声明『我撤销』不能自动切断设备。")
         return True
-    if COPY.search(text) and re.search(r"证据|原始|原件|记录|信息|回执|档案|副本|来源|文件|data|evidence",text,re.I):
+    if re.search(r"保存|备份|复制|保全|留存|隔离保管|存证|copy|backup|preserve",text,re.I) and re.search(r"证据|原始|原件|记录|信息|回执|档案|副本|来源|文件|data|evidence",text,re.I):
         if "source" not in p["proof"]:
             g["note"]="你提出保存副本，但还没有实际调出可核验的原始记录。先找到原件。"
         elif "copy" not in p["proof"]:

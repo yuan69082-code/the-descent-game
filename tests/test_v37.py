@@ -48,7 +48,7 @@ class DynamicHorrorV37(unittest.TestCase):
         self.assertEqual(g["stage"],2)
         self.assertEqual(status,{k:v["status"] for k,v in g["psych"]["assets"].items()})
         self.assertFalse(g["psych"]["choices"])
-        self.assertIn("不会把前两幕",g["note"])
+        self.assertIn("你的反对作为反对被保存",g["note"])
 
     def test_real_choice_a_releases_only_b_and_c_saves_both(self):
         a=prep();c=prep()
