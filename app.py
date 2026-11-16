@@ -84,7 +84,7 @@ def index():
 
 @app.get("/healthz")
 def health():
-    return {"ok":True,"name":"THE DESCENT","version":"3.6"}
+    return {"ok":True,"name":"THE DESCENT","version":"3.7"}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):
@@ -122,6 +122,12 @@ def export(x_session:str=Header(default="")):
     with db() as conn:g,_=get_session(conn,x_session)
     # Full transcript for the player, including private questionnaire, but not private scoring/rules.
     out={"name":g["profile"]["name"],"questionnaire":g["profile"],"lost":g["lost"],"events":g["history"],"ending":g["ending"]}
+    if g.get("edition")=="v37":
+        story=g["psych"]
+        out["experience"]={"interview":story.get("answers",[]),"hypotheticals":story.get("probes",[]),
+                           "real_choices":story.get("choices",[]),"consequences":story.get("consequences",[]),
+                           "proof":story.get("proof",[]),"cost":story.get("cost"),
+                           "first_words":story.get("first_words",""),"final_action":story.get("last_action")}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),

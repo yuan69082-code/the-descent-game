@@ -45,6 +45,9 @@ def s(value: Any, max_len: int=280) -> str:
 
 
 def initialize(profile: dict[str, Any]) -> dict[str, Any]:
+    if profile.get("edition")=="v37":
+        from v37_engine import new_game
+        return new_game()
     required = ["name", "identity", "person", "bond", "memory", "principle", "fear"]
     p = {k:s(profile.get(k), 260 if k not in ("name", "person") else 70) for k in required}
     for k in required:
@@ -279,6 +282,9 @@ def _base_scene(g:dict) -> dict:
 
 def scene(g:dict) -> dict:
     """Blend original chapter with verified cross-chapter consequences."""
+    if g.get("edition")=="v37":
+        from v37_engine import scene as v37_scene
+        return v37_scene(g)
     result=_base_scene(g)
     overlay=consequence_overlay(g)
     if overlay:
@@ -826,6 +832,9 @@ def _act_impl(g:dict, raw_action:str, mode:str="") -> dict:
 
 def act(g:dict, raw_action:str, mode:str="") -> dict:
     """One consistent causality wrapper for every action in all five chapters."""
+    if g.get("edition")=="v37":
+        from v37_engine import act as v37_act
+        return v37_act(g,raw_action,mode)
     text=s(raw_action,700)
     if not text:
         raise ValueError("请写下行动。")
@@ -844,6 +853,9 @@ def act(g:dict, raw_action:str, mode:str="") -> dict:
 
 def public(g:dict)->dict:
     """Only public data. Never expose flags, clues (keys), intent map, or game rules."""
+    if g.get("edition")=="v37":
+        from v37_engine import public as v37_public
+        return v37_public(g)
     p=g["profile"]
     result={"phase":g["phase"],"scene":scene(g), "stage":min(g["stage"]+1,5),
          "turn":g["turn"],"name":("身份待验证" if gone(g,"self") else p["name"]),"note":g["note"],
