@@ -179,7 +179,7 @@ _MAPPING={
 }
 def interpret(g,raw,mode=""):
     """Model may interpret an explicit action; game engine executes validated result."""
-    if not configured() or g.get("edition")!="v38" or g["stage"]<2:
+    if not configured() or g.get("edition") not in ("v38","v39") or g["stage"]<2:
         return raw,mode
     text=raw.strip()
     if SIMPLE.match(text) or text in ("退出","结束游戏","退出游戏"):
