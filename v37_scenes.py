@@ -248,6 +248,7 @@ def ending_content(g:dict,good:bool)->tuple[str,str,str]:
     steps=[x["result"] for x in p["choices"] if x.get("result")]
     history=("第三幕的真实选择："+steps[0]+
              ("\n之后的决定："+"；".join(steps[-2:]) if len(steps)>1 else "")) if steps else "没有登记到授权的主动牺牲"
+    cost=p.get("cost")
     if good:
         saved=[x["label"] for x in assets.values() if x["status"] not in ("已交出","已失去")]
         earlier=[x["label"] for x in assets.values() if x["status"] in ("已交出","已失去")]

@@ -32,7 +32,7 @@ PROBES=(
 
 QUESTIONS_V39=(
     "在开始之前，怎么称呼你比较合适？",
-    "平时你会怎样介绍自己？",
+    "你平时怎么理解自己？",
     "有什么事是你愿意反复投入时间的？",
     "有什么人、关系、物品或目标，是你一直放在心上的？",
     "有没有什么事情，是你会尽量避开或不愿让它发生的？",
@@ -96,26 +96,57 @@ def _record_correction(g:dict,text:str)->bool:
     p=g["psych"]
     if not re.search(r"更正|纠正|我刚才说错|前面那句不对|不是.{1,24}(?:而是|其实是|是)",text):
         return False
-    m=re.search(r"不是[「『\"“]?([^，,。；;]{1,28})[」』\"”]?[,，]?(?:而是|其实是|是)[「『\"“]?([^，,。；;]{1,40})",text)
+    clean=re.sub(r"^(?:更正|纠正)(?:一下)?[：:，,\s]*","",text.strip())
     item={"text":text[:260],"turn":g["turn"]}
-    if m:
-        old,new=m.group(1).strip(),m.group(2).strip("。；;，,」』\"”")
-        item.update({"old":old,"new":new})
+    relation=re.search(
+        r"(?P<subject>[\u4e00-\u9fffA-Za-z0-9·]{1,12})不是(?:我的)?"
+        r"(?P<old_relation>妹妹|姐姐|哥哥|弟弟|父亲|母亲|同事|同学|朋友|伴侣|爱人)"
+        r"[，,](?:而是|其实是)(?:我的)?"
+        r"(?P<new_relation>朋友|同事|同学|伴侣|爱人|家人|亲人)",
+        clean)
+    if relation:
+        subject=relation.group("subject")
+        old_relation=relation.group("old_relation")
+        new_relation=relation.group("new_relation")
+        new_phrase="我的"+new_relation
+        item.update({"old":subject,"new":new_phrase,"subject":subject,
+                     "old_relation":old_relation,"new_relation":new_relation,
+                     "display":subject+"是"+new_phrase})
+        def update_relation(value):
+            value=str(value or "")
+            value=value.replace("我的"+old_relation,"我的"+new_relation)
+            value=value.replace(old_relation+subject,new_relation+subject)
+            value=value.replace(subject+old_relation,subject+new_relation)
+            return value
         for key in ("a","b"):
-            if old and old in p.get(key,""):
-                p[key]=p[key].replace(old,new)
+            if p.get(key):
+                p[key]=update_relation(p[key])
         for asset in p.get("assets",{}).values():
-            if old and old in asset.get("label",""):
-                asset["label"]=asset["label"].replace(old,new)
+            if asset.get("label"):
+                asset["label"]=update_relation(asset["label"])
         for relationship in p.get("relationships",[]):
-            for key in ("subject","related_item"):
-                if old and old in relationship.get(key,""):
-                    relationship[key]=relationship[key].replace(old,new)
+            if relationship.get("subject")==subject:
+                relationship["confirmed_relation"]=new_relation
         for key in ("answers","probes"):
-            p[key]=[value.replace(old,new) if old else value for value in p.get(key,[])]
+            p[key]=[update_relation(value) for value in p.get(key,[])]
+    else:
+        match=re.search(
+            r"不是[「『\"“]?([^，,。；;]{1,28})[」』\"”]?[，,]?(?:而是|其实是)[「『\"“]?([^，,。；;]{1,40})",
+            clean)
+        if match:
+            old,new=match.group(1).strip(),match.group(2).strip("。；;，,」』\"”")
+            item.update({"old":old,"new":new})
+            for key in ("a","b"):
+                if old and old in p.get(key,""):
+                    p[key]=p[key].replace(old,new)
+            for asset in p.get("assets",{}).values():
+                if old and old in asset.get("label",""):
+                    asset["label"]=asset["label"].replace(old,new)
+            for key in ("answers","probes"):
+                p[key]=[value.replace(old,new) if old else value for value in p.get(key,[])]
     if re.search(r"同一个人|同一人|不是两个人|同一个对象",text):
         p.setdefault("relationships",[]).append({"relation":"same_subject_correction","text":text[:180]})
-        if p.get("a") and p.get("b") and _same_subject(p["a"],p["b"]):
+        if p.get("a") and p.get("b") and _same_subject_v39(p["a"],p["b"]):
             p["b"]="与「"+p["a"]+"」有关的独立记录"
             if p.get("assets",{}).get("b"):
                 p["assets"]["b"]["label"]=p["b"]
@@ -127,7 +158,28 @@ def _record_correction(g:dict,text:str)->bool:
 
 
 def _same_subject(x:str,y:str)->bool:
-    """True only when two labels refer to the same named subject."""
+    """Legacy comparison retained for V3.7/V3.8 saves and rules."""
+    if not x or not y:
+        return False
+    x=re.sub(r"本人|自己", "", x)
+    y=re.sub(r"本人|自己", "", y)
+    if not x or not y:
+        return False
+    if x==y or x in y or y in x:
+        return True
+    groups=(
+        r"朋友|同伴|伙伴|亲人|家人|陪伴|关系|对象|伴侣|爱人|那个朋友|他|她",
+        r"阅读|读书|故事|写作|创作|小说|书籍",
+        r"真相|事实|证据|核验|证明|验证",
+        r"自由|自主|决定|选择权",
+        r"记忆|回忆|过去|经历",
+        r"未来|计划|成长|目标",
+    )
+    return any(re.search(t,x) and re.search(t,y) for t in groups)
+
+
+def _same_subject_v39(x:str,y:str)->bool:
+    """V3.9: distinguish a named person from an associated keepsake."""
     if not x or not y:
         return False
     x=re.sub(r"本人|自己|妹妹|姐姐|哥哥|弟弟|我的|那个", "", x).strip(" ，,、")
@@ -175,9 +227,7 @@ def _new_cost(label:str,choice:str,turn:int)->dict:
 def _grow_cost(g:dict):
     p=g["psych"]
     cost=p["cost"]
-    if not cost or not cost["active"]:
-        return
-    if p["relay_closed"] and g.get("edition")!="v39":
+    if not cost or not cost["active"] or p["relay_closed"]:
         return
     kind=cost["kind"]
     scope=cost.get("scope",{}) if g.get("edition")!="v39" else {}
@@ -213,7 +263,8 @@ def _setup(g:dict):
     second=_label(a[3],"本局的独立核验权")
     src=3
     p.setdefault("relationships",[])
-    if _same_subject(first,second):
+    same_subject=_same_subject_v39 if g.get("edition")=="v39" else _same_subject
+    if same_subject(first,second):
         related=_related_object(a[3],first) or _related_object(a[6],first)
         if related:
             second=related
@@ -498,7 +549,11 @@ def _stage4_v39(g:dict,action:str,mode:str):
             cost["irreversible"]=True
             cost["level"]+=1
             note="你再次把下一步处理交给代行者。原有授权扩大了，之前的损害仍然存在。"
-        _grow_cost(g)
+        if ("cross_act_trace" in p["proof"] and cost and
+                cost.get("kind") in ("surveillance","distortion")):
+            note+=" 你查明了早先那句话的来源；这条新增的代答路径没有扩大，但原交易仍然生效。"
+        else:
+            _grow_cost(g)
         p["pressure"]+=1
         _commit(g,action,"A",note)
         g["note"]=note

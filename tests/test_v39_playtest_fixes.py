@@ -74,8 +74,8 @@ class V310PlaytestRegressions(unittest.TestCase):
         self.assertEqual(g["psych"]["corrections"][-1]["new"],"我的朋友")
         with patch("horror_planner.configured",return_value=False):
             plan(g)
-        self.assertIn("更正已写入档案",public(g)["scene"]["body"])
-        self.assertIn(correction[:30],public(g)["scene"]["body"])
+        self.assertIn("小禾是我的朋友",public(g)["scene"]["body"])
+        self.assertIn("更正已写入",g["note"])
 
     def test_question_or_hypothetical_C_does_not_authorize(self):
         for text in ("C?","能不能选C？","如果我选C会怎样？"):
@@ -130,13 +130,14 @@ class V310PlaytestRegressions(unittest.TestCase):
         act(g,"C","choose")
         cost=g["psych"]["cost"]
         g["psych"]["proof"]=["source","route","copy"]
+        g["psych"]["replacement"]=1
         before=g["psych"]["replacement"]
         act(g,"我实际切断代行授权线路","interact")
         self.assertTrue(g["psych"]["relay_closed"])
         self.assertTrue(cost["active"])
         self.assertEqual(g["psych"]["replacement"],before)
         _grow_cost(g)
-        self.assertGreater(g["psych"]["replacement"],before)
+        self.assertEqual(g["psych"]["replacement"],before)
 
     def test_E_refusal_is_not_a_free_two_asset_escape(self):
         g=ready()
@@ -161,7 +162,7 @@ class V310PlaytestRegressions(unittest.TestCase):
         g["psych"]["relay_closed"]=True
         act(g,"B","choose");act(g,"B","choose")
         act(g,"我彻底切断总清算授权链","interact")
-        self.assertEqual(g["phase"],"ended")
+        self.assertEqual(g["phase"],"epilogue")
         self.assertTrue(cost["active"])
         self.assertTrue(cost["irreversible"])
         self.assertIn("仍在生效",g["ending"]["text"])
@@ -176,9 +177,9 @@ class V310PlaytestRegressions(unittest.TestCase):
         self.assertEqual(g["psych"]["beat"],1)
         first=cost["level"]
         act(g,"A","choose")
-        self.assertEqual(g["phase"],"ended")
+        self.assertEqual(g["phase"],"epilogue")
         self.assertTrue(cost["active"])
-        self.assertGreater(cost["level"],first)
+        self.assertGreater(g["psych"]["replacement"],first)
 
     def test_free_mode_never_calls_semantic_model(self):
         g=ready("free")

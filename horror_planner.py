@@ -212,10 +212,6 @@ def create(g):
             current["question"]=proposal["question"].strip();applied=True
     if stage>=2:current["question"]=""
     p["plan"]=dict(current,turn=g["turn"],stage=stage,from_model=applied)
-    if current["hook_id"]:
-        for h in p.get("hooks",[]):
-            if h["id"]==current["hook_id"] and stage not in h.get("seen_at",[]):
-                h.setdefault("seen_at",[]).append(stage)
     return p["plan"]
 
 def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
@@ -362,10 +358,16 @@ def paint(g,result):
         correction_line=""
         if correction and correction[-1].get("turn")==g.get("turn"):
             item=correction[-1]
-            correction_line=("档案上的一行字被划掉，改成：「"+item.get("new",item.get("text",""))[:120]+"」。"
-                             if item.get("new") else "你刚刚更正的内容已经写入档案：「"+item.get("text","")[:120]+"」。")
+            correction_line=("档案上的关系更正为：「"+item["display"]+"」。"
+                             if item.get("display") else
+                             "档案上的一行字被划掉，改成：「"+item.get("new",item.get("text",""))[:120]+"」。"
+                             if item.get("new") else
+                             "你刚刚更正的内容已经写入档案：「"+item.get("text","")[:120]+"」。")
         if pivot:
             scene["body"]=correction_line+"\n\n"+pivot+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
+            for hook in p.get("hooks",[]):
+                if hook["id"]==card.get("hook_id") and stage not in hook.get("seen_at",[]):
+                    hook.setdefault("seen_at",[]).append(stage)
         elif mode in effects or correction_line:
             scene["body"]=correction_line+"\n\n"+grounding+effects.get(mode,"")+"\n\n"+scene["body"]
         # The server's authoritative options stay exactly as the engine provided.
