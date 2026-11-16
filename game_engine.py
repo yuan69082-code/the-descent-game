@@ -53,6 +53,10 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
             g["director"]={"mode":"rules","scene":None,"calls":0}
         elif profile.get("edition")=="v39":
             g["edition"]="v39"
+            model_mode=profile.get("model_mode")
+            if model_mode not in (None,"free","model"):
+                raise ValueError("本局模式只能选择免费模式或语义模型模式。")
+            g["model_mode"]=model_mode
             g["psych"]["hooks"]=[]
             g["psych"]["question_log"]=[]
             g["psych"]["plan"]=None
