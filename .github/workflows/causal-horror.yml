@@ -1,0 +1,34 @@
+name: Causal horror regression
+on:
+  push:
+    branches: [v3-12-earned-horror]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: pip install -r requirements.txt 'httpx>=0.27,<1.0'
+      - run: python -m compileall -q . && node --check static/client.js
+      - name: Run all regressions
+        run: |
+          set -o pipefail
+          python -m unittest discover -s tests -p 'test_*.py' -v 2>&1 | tee regression.log
+      - name: Package exact tested source
+        if: always()
+        run: git archive --format=tar.gz HEAD -o tested-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: causal-horror-verification
+          path: |
+            tested-source.tar.gz
+            regression.log
+          retention-days: 3
