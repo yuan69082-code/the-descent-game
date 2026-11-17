@@ -35,14 +35,14 @@ def document(text: str, status: int = 200):
             "max-width:760px;margin:28px auto;padding:0 18px}pre{white-space:pre-wrap;overflow-wrap:anywhere;"
             "font:inherit}h1{font-size:1.3rem;color:#d7a9b7}</style></head><body>"
             "<h1>THE DESCENT · 恐惧深潜</h1><pre>"+escape(text)+"</pre></body></html>")
-    return HTMLResponse(html, status_code=status, headers={"X-Robots-Tag":"noindex, nofollow, noarchive"})
+    return HTMLResponse(html, status_code=status, headers={"X-Robots-Tag":"noindex, nofollow, noarchive", **({"Retry-After": "10"} if status == 503 else {})})
 
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
     label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
     deep = state.get("story_revision") == "deepening-1"
-    if deep: label = "V3.12"
+    if deep: label = "V3.12.1"
     lines=["THE DESCENT "+label+" / 文字通道",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
@@ -82,9 +82,11 @@ def register_ai_routes(app, db, token_key, get_session):
                 saved,current_version=get_session(conn,sid)
         except HTTPException as ex:
             return document(message,ex.status_code)
-        note=(message+"\n\n本轮没有提交，服务器仍保留版本 "+str(current_version)+
-              "。请稍后使用相同 sid、相同版本和相同 text 重试；不要自行把版本号加一。")
-        return document(note+"\n\n"+view(saved,sid,current_version),503)
+        note=(message+"\n\n本轮没有提交。本轮版本："+str(current_version)+
+              "。建议10秒后使用相同 sid、相同版本和相同 text 重试；不要自行把版本号加一。"+
+              "\n本局仍使用语义模型模式。读取当前场景："+BASE_URL+"/ai/state?sid="+sid)
+        # A retry notice is not another scene. Do not resend the whole interview.
+        return document(note,503)
 
     @app.get("/ai")
     @app.get("/ai/")

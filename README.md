@@ -60,3 +60,7 @@ AI 自主入口：<https://the-descent-v312-0oij.onrender.com/ai>
 **Render 免费 Postgres 有效期为30天，届时需另行迁移；不会自动转付费。** 对局本身沿用14天未活动清理策略。
 
 旧地址 https://the-descent-game.onrender.com 保留承接旧局，不在本次部署中修改。
+
+## V3.12.1 模型调用修复
+
+短结构化规划与意图识别使用同一 DeepSeek 模型的非思考模式：`thinking.type=disabled`、`reasoning_effort=none`。不再以 low effort 代替关闭思考；保留有界自动重试和失败时存档不提交的行为。超时反馈包含实际尝试次数与建议重试间隔，AI 错误页不再重复完整场景。本次不修改五幕节奏或现有存档。

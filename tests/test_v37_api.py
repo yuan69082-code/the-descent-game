@@ -25,7 +25,7 @@ class NewPlayerHttpV37(unittest.TestCase):
         self.assertIn("V3.12",h.text)
         self.assertNotIn("你最不愿失去的一个对象",h.text)
         self.assertNotIn("七项价值",h.text)
-        self.assertEqual(self.client.get("/healthz").json()["version"],"3.12")
+        self.assertEqual(self.client.get("/healthz").json()["version"],"3.12.1")
         js=self.client.get("/static/client.js").text
         self.assertIn("edition:'v39'",js)
         self.assertNotIn("QUESTIONNAIRE",js)

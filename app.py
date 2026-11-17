@@ -82,7 +82,7 @@ def health():
     from horror_director import configured
     with db() as conn:
         conn.execute("SELECT 1").fetchone()
-    return {"ok":True,"name":"THE DESCENT","version":"3.12",
+    return {"ok":True,"name":"THE DESCENT","version":"3.12.1",
             "model_configured":configured(),
             "session_storage":"postgres" if postgres_url() else "sqlite"}
 
@@ -106,7 +106,7 @@ def new_game(payload:NewGame):
     if g.get("edition")=="v39":
         from horror_planner import create
         try:create(g)
-        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
+        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex),headers={"Retry-After":"10"})
     token=secrets.token_urlsafe(32)
     with db(True) as conn:
         # Expire old sessions after 14 days; nothing is transmitted to analytics.
@@ -139,7 +139,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         if model_enabled(g):
             try:action_text,action_mode=interpret(g,action_text,action_mode)
             except RuntimeError as ex:
-                raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
+                raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex),headers={"Retry-After":"10"})
     old_stage=g["stage"]
     try:act(g,action_text,action_mode)
     except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
@@ -151,7 +151,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         remember(g,action_text,old_stage,payload.action,action_mode)
         try:create(g)
         except RuntimeError as ex:
-            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
+            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex),headers={"Retry-After":"10"})
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
     with db(True) as conn:

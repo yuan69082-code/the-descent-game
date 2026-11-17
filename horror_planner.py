@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from horror_director import _completion, configured
+from horror_director import _completion, configured, failure_hint
 
 MODES = {
   0:("smalltalk","interest","contrast","memory"),
@@ -246,7 +246,7 @@ def create(g):
           {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],
           420,fast=True)
         if not isinstance(proposal,dict):
-            raise RuntimeError("语义模型连续调用未完成。本轮行动没有提交，存档版本没有推进，也没有切换到免费模式。请稍后重试同一行动。")
+            raise RuntimeError(failure_hint()+"语义模型连续调用未完成。本轮行动没有提交，存档版本没有推进，也没有切换到免费模式。建议10秒后重试同一行动。")
     stage=g["stage"]
     current=default.copy()
     applied=False
@@ -270,13 +270,11 @@ def create(g):
             if proposal.get(field) in keys:
                 current[field] = proposal[field]
                 applied = True
-                applied = True
         if current.get("other_id") == current.get("target_id"):
             current.pop("other_id", None)
         events = {e["id"] for e in p.get("deep", {}).get("events", [])}
         if isinstance(proposal.get("event_id"), str) and proposal["event_id"] in events:
             current["event_id"] = proposal["event_id"]
-            applied = True
             applied = True
         if proposal.get("surface") in ("receipt", "signal", "window"):
             current["surface"] = proposal["surface"]
