@@ -85,7 +85,7 @@ def index():
 @app.get("/healthz")
 def health():
     from horror_director import configured
-    return {"ok":True,"name":"THE DESCENT","version":"3.9",
+    return {"ok":True,"name":"THE DESCENT","version":"3.12",
             "model_configured":configured()}
 
 @app.post("/api/new",status_code=201)
@@ -99,6 +99,7 @@ def new_game(payload:NewGame):
         if mode=="model" and not configured():
             raise HTTPException(status_code=503,detail="语义模型尚未配置或当前不可用。请选择免费模式，或稍后重试。")
         profile["model_mode"]=mode
+        profile.setdefault("story_revision", "deepening-1")
     try:g=initialize(profile)
     except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":
@@ -185,7 +186,11 @@ def export(x_session:str=Header(default="")):
             out["narrative"]={"model_mode":g.get("model_mode","free"),
                               "plan":story.get("plan"),"hooks":story.get("hooks",[]),
                               "question_log":story.get("question_log",[]),
-                              "literal_actions":story.get("literal_actions",[])}
+                              "literal_actions":story.get("literal_actions",[]),
+                              "story_revision":g.get("story_revision", "legacy"),
+                              "encounters":story.get("deep", {}).get("events", []),
+                              "accepted_paths":story.get("deep", {}).get("costs", []),
+                              "protected_objects":story.get("assets", {})}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),

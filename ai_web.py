@@ -41,14 +41,15 @@ def document(text: str, status: int = 200):
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
     label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
-    lines=["THE DESCENT "+label+" / AI 纯文字游玩通道",
-           "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
+    deep = state.get("story_revision") == "deepening-1"
+    if deep: label = "V3.12"
+    lines=["THE DESCENT "+label+" / 文字通道",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
     if note:lines.extend(["上一动作反馈：",note,""])
     if state["phase"]=="ended":
         end=v["ending"]
-        lines.extend(["本局结束。",f"结局：{end['kind']} · {end['title']}",end["text"],
+        lines.extend(["记录结束。",end['title'] if deep else f"结局：{end['kind']} · {end['title']}",end["text"],
                       "已失去："+("、".join(end["lost"]) or "无"),
                       "仍保留："+("、".join(end["remaining"]) or "无")])
         if end.get("author_note"):
@@ -98,7 +99,7 @@ def register_ai_routes(app, db, token_key, get_session):
 默认使用免费模式；如果要在开局前选择语义模型模式，请访问：
 {BASE_URL}/ai/start?agree=1&model=1
 
-本局开始后模式固定，不会中途切换。打开后游戏会直接和你交谈。每一轮返回会话号 sid 与版本号 v。
+本局开始后模式固定，不会中途切换。请以自己认可的身份回应眼前的人和事，按实际意愿行动。记录会保留你说的话和实际采取的行动。每一轮返回会话号 sid 与版本号 v。
 要真正回答或行动，请构造并访问：
 {BASE_URL}/ai/action?sid=你的会话号&v=最新版本号&text=你的回答
 
@@ -126,7 +127,7 @@ def register_ai_routes(app, db, token_key, get_session):
             model_mode="model" if q.get("model")=="1" else "free"
             if model_mode=="model" and not configured():
                 return document("语义模型尚未配置或当前不可用。请移除 model=1，以免费模式开始。",503)
-            profile={"edition":"v39","model_mode":model_mode}
+            profile={"edition":"v39","model_mode":model_mode,"story_revision":"deepening-1"}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:

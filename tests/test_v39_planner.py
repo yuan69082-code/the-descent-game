@@ -141,7 +141,7 @@ class BackstagePlannerV39(unittest.TestCase):
         with patch.object(planner,"configured",return_value=False):
             client=TestClient(app)
             page=client.get("/")
-            self.assertIn("V3.9",page.text)
+            self.assertIn("V3.12",page.text)
             r=client.post("/api/new",json={"profile":{"edition":"v39"}})
             self.assertEqual(r.status_code,201,r.text)
             sid=r.json()["token"]
@@ -155,7 +155,7 @@ class BackstagePlannerV39(unittest.TestCase):
             again=client.get("/api/state",headers={"X-Session":sid})
             self.assertEqual(again.json()["scene"],answer.json()["scene"])
             ai=client.get("/ai/start",params={"agree":"1"})
-            self.assertIn("V3.9",ai.text)
+            self.assertIn("V3.12",ai.text)
             self.assertNotIn("model_prompt",ai.text)
             client.close()
 

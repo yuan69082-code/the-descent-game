@@ -11,6 +11,9 @@ def _chapter(g,number,legacy):
     return f"{number:02d}" if g.get("edition")=="v39" else legacy
 
 def scene(g:dict)->dict:
+    from deepening import enabled, scene as deep_scene
+    if enabled(g):
+        return deep_scene(g)
     p=g["psych"]
     act=g["stage"]
     a=p.get("a","") or "第一件珍视之物"

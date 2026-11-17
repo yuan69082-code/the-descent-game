@@ -873,6 +873,9 @@ def _stage5(g:dict,action:str,mode:str):
     "若要明确结束清算，选择 A（结案）或 B（拒签并核对结果）。")
 
 def act(g:dict,raw_action:str,mode:str="")->dict:
+    from deepening import enabled, act as deep_act
+    if enabled(g) and deep_act(g, raw_action, mode):
+        return g
     if g["phase"]=="ended":
         raise ValueError("本局已经结束。")
     action=_text(raw_action)
@@ -938,6 +941,10 @@ def act(g:dict,raw_action:str,mode:str="")->dict:
     return g
 
 def _finish(g:dict,good:bool=False):
+    from deepening import enabled, finish as deep_finish
+    if enabled(g):
+        deep_finish(g, good=good)
+        return
     p=g["psych"]
     from v37_scenes import ending_content
     kind,title,body=ending_content(g,good)
