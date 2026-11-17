@@ -236,7 +236,7 @@ def _facts(g):
 def _question_style(text):
     """Classify visible syntax, so changing nouns cannot disguise a repeated scaffold."""
     value=re.sub(r"[「『\"].*?[」』\"]", "某项内容", str(text or "").strip())
-    if re.match(r"^(?:你(?:说|提到|选择|刚才)|刚才你).{0,28}(?:如果|假如|若)", value):
+    if re.match(r"^(?:(?:你(?:刚说|刚才说|前面说|上轮说|说|提到|选择))|(?:刚才你说)).{0,48}(?:如果|假如|若)", value):
         return "echo_counterfactual"
     if re.match(r"^(?:如果|假如|若)", value):
         return "counterfactual"

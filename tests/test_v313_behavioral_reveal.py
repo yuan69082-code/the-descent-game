@@ -196,7 +196,7 @@ class BehavioralReveal(unittest.TestCase):
         self.assertEqual(g["stage"], 1)
         g["model_mode"] = "model"
         first = {"mode": "comparison", "focus": "a", "hook_id": "",
-                 "question": "你提到用固定哈希确认原始记录，如果只能先核对一处，你会选哪一处？"}
+                 "question": "你刚说要用固定哈希确认原始记录。现在，如果只能先核对一处，你会选哪一处？"}
         with patch.object(planner, "configured", return_value=True), \
              patch.object(planner, "_completion", return_value=first):
             planner.create(g)
@@ -206,7 +206,7 @@ class BehavioralReveal(unittest.TestCase):
         act(g, "先核对原始记录", "")
         planner.remember(g, "先核对原始记录", previous, "先核对原始记录", "")
         repeated = {"mode": "condition", "focus": "a", "hook_id": "",
-                    "question": "你说原始记录要先核对，如果另一份马上清走，你会先选哪一份？"}
+                    "question": "你刚才说原始记录要先核对。现在，如果另一份马上清走，你会先选哪一份？"}
         with patch.object(planner, "configured", return_value=True), \
              patch.object(planner, "_completion", return_value=repeated):
             card = planner.create(g)
