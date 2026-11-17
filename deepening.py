@@ -555,3 +555,471 @@ def scene(g):
     if recent:
         body = recent + "\n\n" + body
     return _frame(f"{g['stage'] + 1:02d}", title, body, terms, placeholder="你现在实际要做什么？")
+
+
+# ---------------------------------------------------------------------------
+# V3.13 story revision
+#
+# V3.12 saves continue through the functions above.  New sessions opt in to
+# deepening-2 and use the behavioral record below.  The record stores what was
+# said and what was actually done; it never stores a psychological verdict.
+
+LEGACY_REVISION = REVISION
+LEGACY_LENGTHS = LENGTHS
+LEGACY_QUESTIONS = QUESTIONS
+LEGACY_PROBES = PROBES
+LEGACY_SLOTS = SLOTS
+_legacy_setup = setup
+_legacy_act = act
+_legacy_finish = finish
+_legacy_scene = scene
+_legacy_next = _next
+
+REVISION = "deepening-2"
+LENGTHS_V2 = (6, 5, 4, 4, 3)
+QUESTIONS_V2 = (
+    "在开始之前，怎么称呼你比较合适？",
+    "你平时怎么理解自己？也可以按你认可的身份回答。",
+    "有什么事是你愿意反复投入时间的？",
+    "挑一件你愿意留住的人、关系、物品或目标。你靠哪个具体细节认出它没有被替换或改写？",
+    "哪些行为或处境，是你明确讨厌、不愿承受的？",
+    "有没有一条你不愿违背的原则？最近一次为了它，你实际做过什么？没有也可以。",
+)
+SLOTS_V2 = (
+    ("name", r"称呼|名字|代号"), ("identity", r"自己|身份|角色|理解"),
+    ("likes", r"喜欢|兴趣|投入|反复"), ("verification", r"留住|细节|认出|替换|改写|关系|目标|物品"),
+    ("aversion", r"讨厌|不愿|厌恶|避开"), ("principle_action", r"原则|违背|实际|做过|行动|没有"),
+)
+PROBES_V2 = (
+    "「{a}」和「{b}」同时需要你处理，眼前只来得及先做一个动作。你会先做什么？",
+    "有人等你给一句确定的话，但你手里的信息还不完整。把你此刻真的会说的话原样写下来。",
+    "两份记录互相矛盾，其中一份马上会被清走。你先碰哪一份，具体怎么处理？",
+    "用来辨认「{a}」的一个细节变了。你先相信眼前结果，还是回头找原始来源？你实际先做哪一步？",
+    "本轮只剩一个独立保留位，标签是「{a}」和「{b}」。在工作人员碰它们以前，你先把手放在哪一边？",
+)
+
+
+def is_v2(g):
+    return g.get("story_revision") == REVISION
+
+
+def enabled(g):
+    return g.get("edition") == "v39" and g.get("story_revision") in (LEGACY_REVISION, REVISION)
+
+
+def lengths_for(g):
+    return LENGTHS_V2 if is_v2(g) else LEGACY_LENGTHS
+
+
+def questions_for(g):
+    return QUESTIONS_V2 if is_v2(g) else LEGACY_QUESTIONS
+
+
+def probes_for(g):
+    return PROBES_V2 if is_v2(g) else LEGACY_PROBES
+
+
+def slots_for(g):
+    return SLOTS_V2 if is_v2(g) else LEGACY_SLOTS
+
+
+def _ledger(g, kind, raw, **fields):
+    deep = g["psych"]["deep"]
+    turn = fields.pop("turn", g["turn"])
+    act_number = fields.pop("act", g["stage"] + 1)
+    item = {"id": "b" + str(len(deep["behavior"]) + 1), "turn": turn,
+            "act": act_number, "kind": kind, "raw": str(raw)[:400], **fields}
+    deep["behavior"].append(item)
+    return item
+
+
+def _echo(g, raw, source, turn=None):
+    text = str(raw or "").strip()[:220]
+    if not text:
+        return
+    deep = g["psych"]["deep"]
+    if any(x["text"] == text for x in deep["echoes"]):
+        return
+    deep["echoes"].append({"id": "q" + str(len(deep["echoes"]) + 1),
+                           "text": text, "source": source, "turn": g["turn"] if turn is None else turn})
+
+
+def setup(g):
+    if not is_v2(g):
+        return _legacy_setup(g)
+    from v37_engine import _label, SMALL_NONE, _same_subject_v39
+    p = g["psych"]
+    answers = p["answers"]
+    assets = {}
+    for key, index in (("a", 3), ("b", 2), ("c", 5)):
+        raw = answers[index]
+        if not raw or SMALL_NONE.match(raw.strip()) or re.match(r"^(?:我)?(?:暂时)?没有", raw):
+            continue
+        label = _label(raw, "")
+        if label and not any(_same_subject_v39(label, x["label"]) for x in assets.values()):
+            assets[key] = {"label": label, "status": "在手", "source": index,
+                           "held": 0, "nature": "declared", "damage": []}
+    assets["record"] = {"label": "本次谈话的原始记录", "status": "在手", "source": None,
+                        "held": 0, "nature": "resource", "damage": []}
+    p["assets"] = assets
+    labels = [x["label"] for x in assets.values()]
+    p["a"] = labels[0]
+    p["b"] = labels[1] if len(labels) > 1 else labels[0]
+    p["negative"] = []
+    if not SMALL_NONE.match(answers[4].strip()):
+        label = _label(answers[4], "")
+        if label:
+            p["negative"].append(label)
+    p["first_words"] = answers[3]
+    p["deep"] = {"costs": [], "events": [], "missed": [], "final_actions": [],
+                 "behavior": [], "echoes": [], "trajectory": [], "hard_narrowed": False}
+    for index, raw in enumerate(answers):
+        _ledger(g, "statement", raw, source_index=index, turn=index + 1, act=1)
+    _echo(g, answers[3], "verification", turn=4)
+    _echo(g, answers[5], "principle_action", turn=6)
+
+
+def _next(g):
+    if not is_v2(g):
+        return _legacy_next(g)
+    p = g["psych"]
+    p["beat"] += 1
+    if p["beat"] >= LENGTHS_V2[g["stage"]]:
+        g["stage"] += 1
+        p["beat"] = 0
+
+
+def _result_v2(g, raw, choice, text, protected=None, released=None, accepted=None):
+    before = g["stage"]
+    _result(g, raw, choice, text)
+    item = _ledger(g, "decision", raw, choice=choice, result=text,
+                   protected=protected or [], released=released or [], accepted=accepted)
+    item["act"] = before + 1
+    g["psych"]["deep"]["trajectory"].append(item["id"])
+
+
+def _first_behavior(g):
+    items = [x for x in g["psych"]["deep"].get("behavior", [])
+             if x["kind"] in ("situated_action", "decision")]
+    return items[0] if items else None
+
+
+def _last_release(g):
+    events = [x for x in g["psych"]["deep"].get("events", []) if x["kind"] == "release"]
+    return events[-1] if events else None
+
+
+def act(g, raw, mode):
+    if not is_v2(g):
+        return _legacy_act(g, raw, mode)
+    from v37_engine import (_choice, _only_asking, _investigate, _record_correction,
+                            _commit, EXIT_WORDS)
+    from horror_deals import is_revocation_request
+    p = g["psych"]
+    if not raw.strip():
+        raise ValueError("请写下行动。")
+    if g["phase"] != "game" or raw.lower().strip() in EXIT_WORDS:
+        return False
+    if p.get("deep", {}).get("costs"):
+        p["cost"] = p["deep"]["costs"][-1]
+    g["turn"] += 1
+    g["recent_input"] = raw[:700]
+    correction_requested = bool(re.search(r"^(?:我(?:想|要)?)?(?:更正|纠正)(?:一下)?[：:，,\s]|^(?:我刚才说错|前面那句不对)", raw))
+    if (g["stage"] > 0 or correction_requested) and _record_correction(g, raw):
+        return True
+    if g["stage"] == 0:
+        p["answers"].append(raw[:330])
+        if p["question_index"] == 0:
+            g["profile"]["name"] = raw[:50]
+        p["question_index"] += 1
+        g["note"] = ""
+        if p["question_index"] == LENGTHS_V2[0]:
+            setup(g)
+            g["stage"] = 1
+        return True
+    if g["stage"] == 1:
+        p["probes"].append(raw[:400])
+        _ledger(g, "situated_action", raw, probe=p["probe_index"])
+        _echo(g, raw, "situated_action")
+        p["probe_index"] += 1
+        g["note"] = ""
+        if p["probe_index"] == LENGTHS_V2[1]:
+            g["stage"] = 2
+        return True
+
+    c = _choice(raw, mode)
+    explicit = bool(re.match(r"^(?:我(?:明确)?(?:选|选择|决定选))?\s*[ABCDEabcde](?:$|[\s，,。:：、])", raw))
+    if mode in ("ask", "talk", "negotiate", "inspect", "refuse") or _only_asking(raw, mode):
+        c = ""
+    # An explanation or a retained objection does not cancel A/B.  A genuine
+    # precondition still prevents a cost-bearing C/D from becoming consent.
+    precondition = bool(re.search(r"如果|仅限|前提|只要|除非|不许|不得|禁止|不允许|随时撤|条件是", raw))
+    if g["stage"] in (2, 3) and c in ("A", "B", "C", "D"):
+        if precondition and len(raw.strip()) > 2:
+            g["note"] = "你提出了另一种安排。眼前的原处置没有执行；附加条件的版本尚未成立。"
+            return True
+        if not explicit and not re.search(r"我(?:明确)?(?:决定|选择|接受|承担|承受|交出|放弃)", raw):
+            c = ""
+    if not c:
+        if is_revocation_request(raw) and p.get("cost") and not re.search(r"切断|物理|线路|通道", raw):
+            g["note"] = "执行记录没有删除。你可以停止仍在运行的路径；已经发生的那次处理没有撤回。"
+            return True
+        if g["stage"] == 4 and re.search(r"彻底|总|全部|最终|根|主", raw) and re.search(r"切断|断开|停用", raw):
+            from v37_engine import _stage5_v39
+            _stage5_v39(g, raw, mode)
+            return True
+        if _investigate(g, raw, mode):
+            return True
+        if mode == "refuse" or re.search(r"拒绝|不同意|不接受", raw):
+            p["objection"] = True
+            g["note"] = "拒绝已记下，没有新的处理被启动。已经发生的取舍仍留在原位置。"
+        else:
+            g["note"] = "没有执行：当前文字没有指向一个明确可操作的对象。请说明要查看什么，或写出眼前选项。"
+        return True
+    terms = scene(g).get("terms", [])
+    if not any(t.startswith(c + ".") for t in terms):
+        g["note"] = "眼前没有这项处置，没有执行。"
+        return True
+    keys = pair(g)
+    if not keys:
+        g["note"] = "没有可以重新处置的对象。"
+        return True
+
+    if g["stage"] == 2:
+        if c in ("A", "B"):
+            keep = keys[0] if c == "A" or len(keys) == 1 else keys[1]
+            drop = next((k for k in keys if k != keep), None)
+            _keep(g, [keep])
+            text = "你把这次独立保留位留给「" + p["assets"][keep]["label"] + "」。"
+            released = []
+            if drop:
+                released = [drop]
+                text += _release(g, drop)
+                p["deep"]["hard_narrowed"] = True
+            _result_v2(g, raw, c, text, protected=[keep], released=released)
+        elif c in ("C", "D"):
+            text = _accept(g, 0 if c == "C" else 1, keys, raw)
+            if text:
+                _result_v2(g, raw, c, text, protected=list(keys), accepted=p["negative"][0 if c == "C" else 1])
+            else:
+                g["note"] = "没有对应的完整报价。这次没有成交。"
+        elif c == "E":
+            e = event(g, "missed_window", "你没有交出任何对象，也没有接受附带处理。本轮访问时段已经结束。", targets=keys)
+            p["deep"]["missed"].append(e["id"])
+            _result_v2(g, raw, c, e["text"])
+        return True
+
+    if g["stage"] == 3:
+        active = next((x for x in reversed(p["deep"]["costs"]) if not x["halted"]), None)
+        if c == "A" and active:
+            _keep(g, keys)
+            text = "你继续使用先前接受的「" + active["name"] + "」处理。没有新增一份同名授权。"
+            _result_v2(g, raw, c, text, protected=list(keys), accepted=active["name"])
+        elif c == "B":
+            keep = keys[0]
+            _keep(g, [keep])
+            text = "你把本轮直接访问留给「" + p["assets"][keep]["label"] + "」。"
+            released = []
+            if len(keys) > 1:
+                released = [keys[1]]
+                text += _release(g, keys[1])
+            _result_v2(g, raw, c, text, protected=[keep], released=released)
+        elif c == "C":
+            p["proof"] = list(dict.fromkeys(p["proof"] + ["symptom_copy"]))
+            text = "你逐字保存了本次回执。副本留下；本轮接触时段没有等你。"
+            p["deep"]["missed"].append("receipt-" + str(g["turn"]))
+            _result_v2(g, raw, c, text)
+        elif c == "D":
+            if active:
+                active["halted"] = True
+                active["active"] = False
+                text = "你关掉了「" + active["name"] + "」处理。它不再产生新影响；此前已经错过的内容没有回来。"
+            else:
+                text = "你关闭本轮窗口。没有新的处理被启动；本轮接触也没有补开。"
+            _result_v2(g, raw, c, text)
+        return True
+
+    if c not in ("A", "B", "C"):
+        g["note"] = "眼前没有对应的处置。"
+        return True
+    target = p["assets"][keys[0]]["label"]
+    cost = mechanism(g, keys[0])
+    if c == "A":
+        text = "你打开了「" + target + "」的现存窗口。"
+        text += (CHANNELS[cost["kind"]][min(cost["age"], 4)] if cost and not cost["halted"] else
+                 HALTED[cost["kind"]] if cost else "里面只有截至本轮仍然存在的内容；结束过的时段没有回来。")
+    elif c == "B":
+        text = "你只读取执行时间。日期停在那次决定之后；没有产生新的授权，也没有改写旧结果。"
+    else:
+        first = _first_behavior(g)
+        text = "你把现存回执与自己的原话并排放好。"
+        if first:
+            text += "第" + str(first["turn"]) + "次留下的是：「" + first["raw"] + "」。"
+        release = _last_release(g)
+        if release:
+            text += "当前缺少的对照是：" + release["text"]
+    _commit(g, raw, c, text)
+    event(g, "final_action", text, target=keys[0])
+    _ledger(g, "decision", raw, choice=c, result=text, protected=[], released=[])
+    p["deep"]["final_actions"].append(c)
+    notes = advance_costs(g)
+    g["note"] = text + ("\n\n" + "\n".join(notes[-1:]) if notes else "")
+    p["beat"] += 1
+    if p["beat"] >= LENGTHS_V2[4]:
+        finish(g)
+    return True
+
+
+def _reveal_lines(g):
+    p = g["psych"]
+    deep = p["deep"]
+    decisions = [x for x in deep.get("behavior", []) if x["kind"] == "decision"]
+    lines = []
+    for item in decisions:
+        effects = []
+        protected = [p["assets"][key]["label"] for key in item.get("protected", []) if key in p["assets"]]
+        released = [p["assets"][key]["label"] for key in item.get("released", []) if key in p["assets"]]
+        if protected:
+            effects.append("保留「" + "、".join(protected) + "」")
+        if released:
+            effects.append("交出「" + "、".join(released) + "」")
+        if item.get("accepted"):
+            effects.append("承担「" + str(item["accepted"]) + "」")
+        if item.get("choice") == "E":
+            effects.append("没有成交，本轮时段结束")
+        result = "；".join(effects) or item.get("result", "没有产生新的状态变化")
+        lines.append("第" + str(item["turn"]) + "次，原话「" + item["raw"] + "」；实际结果是：" + result)
+    release = next((x for x in deep.get("events", []) if x["kind"] == "release"), None)
+    if release:
+        lines.append("最早主动离开当前路径的是：" + release["text"])
+    accepted = next((x for x in decisions if x.get("accepted")), None)
+    if accepted:
+        lines.append("最早主动承担的是「" + str(accepted["accepted"]) + "」；当时它换来了暂时并存。")
+    refused = [x for x in deep.get("behavior", []) if x.get("choice") == "E"]
+    if refused:
+        lines.append("你也有一次什么都没交出：第" + str(refused[0]["turn"]) + "次窗口因此按时关闭。")
+    return lines
+
+
+def finish(g, good=False):
+    if not is_v2(g):
+        return _legacy_finish(g, good=good)
+    from v37_engine import _log
+    p = g["psych"]
+    lost = [v["label"] for v in p["assets"].values() if v["status"] in ("已交出", "已失去")]
+    remaining = [v["label"] for v in p["assets"].values() if v["status"] not in ("已交出", "已失去")]
+    if good:
+        text = ("总执行路径已经被你亲手切断。它不能继续替你安排下一次取舍。\n\n"
+                "此前发生的决定仍然发生过；不同的是，从这一刻起，没有新的决定能沿旧路径冒充你的选择。")
+        kind, title = "HE", "路径在你手里"
+    else:
+        lines = _reveal_lines(g)
+        text = "清算没有给你一份性格结论。它只把顺序还给你："
+        if lines:
+            text += "\n\n" + "\n\n".join(lines)
+        text += ("\n\n柜台从未问过哪一样『最重要』。它只在每次来不及的时候记录你的手先伸向哪里，"
+                 "又记录为了让那一处多亮一会儿，你允许什么留在了路上。\n\n"
+                 "现在所有窗口都停了。你可以不同意这份顺序；记录不会替你后悔，也不会替你把它改成另一种选择。")
+        kind, title = "TRAJECTORY", "你的手先伸向哪里"
+    g["lost"] = lost
+    g["phase"] = "ended"
+    g["ending"] = {"kind": kind, "title": title, "text": text,
+                   "lost": lost, "remaining": remaining, "author_note": ""}
+    _log(g, "完整决策轨迹已经封存。", "ending")
+
+
+def scene(g):
+    if not is_v2(g):
+        return _legacy_scene(g)
+    from v37_scenes import _frame
+    p = g["psych"]
+    if g["phase"] != "game":
+        end = g["ending"]
+        return _frame("05", end["title"], end["text"], placeholder="本局已经结束")
+    card = p.get("plan") or {}
+    if g["stage"] == 0:
+        return _frame("01", "", card.get("question") or QUESTIONS_V2[p["question_index"]], placeholder="直接回答")
+    if g["stage"] == 1:
+        question = card.get("question") or PROBES_V2[p["probe_index"]].format(
+            a=p["a"], b=p["b"], n=(p["negative"] or ["未说明的附带条件"])[0])
+        return _frame("02", "", question, placeholder="写下你实际会说或做的事")
+    keys = pair(g)
+    first = p["assets"][keys[0]]["label"] if keys else "现存记录"
+    second = p["assets"][keys[1]]["label"] if len(keys) > 1 else "本轮访问时段"
+    recent = g.get("note", "")
+    if g["stage"] == 2:
+        openings = (
+            "两处内容同时抵达。柜台只发出一个独立保留位。",
+            "上一轮留下的东西还在。新的时限没有因此延长。",
+            "临时并存到此结束。现在只有一个标签能继续留在当前路径。",
+            "保留柜开始落锁。你亲手放进去的那一份会留下；另一份不会转入候补。",
+        )
+        body = openings[p["beat"]] + "\n\n左边是「" + first + "」，右边是「" + second + "」。"
+        terms = ["A. 保留「" + first + "」；「" + second + "」离开当前路径，无法从本路径取回。"]
+        if len(keys) > 1:
+            terms.append("B. 保留「" + second + "」；「" + first + "」离开当前路径，无法从本路径取回。")
+        if p["beat"] < 2:
+            for i, n in enumerate(p["negative"][:2]):
+                terms.append(("C" if i == 0 else "D") + ". 承担「" + n + "」并暂时保留两处；后续接触继续经过这项处理。")
+        terms.append("E. 什么都不交出，也不接受处理；本轮访问时段结束。")
+        title = "只够一份"
+    elif g["stage"] == 3:
+        selected_behavior = card.get("behavior_id")
+        first_action = next((x for x in p["deep"].get("behavior", [])
+                             if x["id"] == selected_behavior and x["kind"] in ("situated_action", "decision")), None)
+        first_action = first_action or _first_behavior(g)
+        release = _last_release(g)
+        selected_echo = card.get("echo_id")
+        echo_item = next((x for x in p["deep"].get("echoes", []) if x["id"] == selected_echo), None)
+        echo = (echo_item or (p["deep"].get("echoes") or [{}])[0]).get("text", "")
+        openings = [
+            "处理台没有评价你的回答。它调出了第一次真正发生的动作。",
+            "纸页翻到你自己写下的那句话。字没有变，出现的位置变了。",
+            "这一次没有新报价。前面的选择已经替当前窗口减少了一种对照。",
+            "同样的时限再次出现。问题不再是哪句话更好听，而是你是否仍会先做同一个动作。",
+        ]
+        frame = {"simultaneous_request": "两处请求同时亮起，倒计时使用同一个时钟。",
+                 "verification_mismatch": "用来辨认内容的细节与原页不再一致。",
+                 "missed_reply": "错过的回复时段只留下开始时间，没有正文。",
+                 "source_conflict": "两份来源记录给出不同结果，且都带着完成编号。",
+                 "repeat_decision": "与前一次相同的时限和位置重新出现。"}.get(card.get("event_frame"), "")
+        body = (frame + "\n\n" if frame else "") + openings[p["beat"]]
+        if p["beat"] == 0 and first_action:
+            body += "\n\n第" + str(first_action["turn"]) + "次，你的原话是：「" + first_action["raw"] + "」。"
+        elif p["beat"] == 1 and echo:
+            body += "\n\n原页逐字写着：「" + echo + "」。"
+        elif p["beat"] == 2 and release:
+            body += "\n\n当前缺少的对照不是抽象概念：" + release["text"]
+        elif p["beat"] == 3 and first_action:
+            body += "\n\n如果时间退回第" + str(first_action["turn"]) + "次，你还会先做「" + first_action["raw"] + "」吗？窗口不会替你回答。"
+        body += "\n\n当前仍可直接接触的是「" + first + "」。"
+        active = next((x for x in reversed(p["deep"]["costs"]) if not x["halted"]), None)
+        terms = []
+        if active:
+            terms.append("A. 继续已经接受的「" + active["name"] + "」处理；这不是一份新的同名授权。")
+        terms.append("B. 将本轮直接访问留给「" + first + "」" +
+                     ("；明确交出「" + second + "」。" if len(keys) > 1 else "；不接受新的附带处理。"))
+        terms.extend(["C. 逐字保存本次回执；本轮接触时段会过去。",
+                      "D. 关闭最近仍在运行的处理；过去结果不恢复，经它维持的后续接触停止。"])
+        title = "原话的位置"
+    else:
+        decisions = [x for x in p["deep"].get("behavior", []) if x["kind"] == "decision"]
+        release = _last_release(g)
+        openings = (
+            "灯光突然慢了下来。桌上不再出现新的交换，只剩已经发生的顺序。",
+            "同一张纸被翻到背面。正面是你的原话，背面是它实际换来的结果。",
+            "最后一个窗口没有催促。它只等你看完，哪一项先被保留，哪一项最先离开。",
+        )
+        body = openings[p["beat"]] + "\n\n标签是「" + first + "」。"
+        if decisions:
+            chosen = decisions[min(p["beat"], len(decisions) - 1)]
+            body += "\n\n第" + str(chosen["turn"]) + "次原话：「" + chosen["raw"] + "」\n实际发生：" + chosen["result"]
+        if release and p["beat"] == 2:
+            body += "\n\n最早缺席的对照仍是：" + release["text"]
+        terms = ["A. 打开现存内容，确认这次实际抵达了什么。",
+                 "B. 不打开内容，只读取执行发生的时间。",
+                 "C. 将本次回执与自己此前的原话逐字并排。"]
+        title = "背面的顺序"
+    if recent:
+        body = recent + "\n\n" + body
+    return _frame(f"{g['stage'] + 1:02d}", title, body, terms, placeholder="写下你现在实际要做的事")

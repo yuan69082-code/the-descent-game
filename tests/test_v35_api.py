@@ -35,8 +35,8 @@ class ApiV35(unittest.TestCase):
         response=self.client.get("/")
         self.assertEqual(response.status_code,200)
         self.assertIn("THE DESCENT",response.text)
-        self.assertIn("V3.12",response.text)
-        self.assertEqual(self.client.get("/healthz").json()["version"],"3.12.1")
+        self.assertIn("V3.13",response.text)
+        self.assertEqual(self.client.get("/healthz").json()["version"],"3.13.0")
         js=self.client.get("/static/client.js").text
         self.assertIn("current.phase==='epilogue'",js)
         self.assertIn("保存最后一句",js)

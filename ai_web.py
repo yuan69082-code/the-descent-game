@@ -41,8 +41,8 @@ def document(text: str, status: int = 200):
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
     label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
-    deep = state.get("story_revision") == "deepening-1"
-    if deep: label = "V3.12.1"
+    deep = state.get("story_revision") in ("deepening-1", "deepening-2")
+    if deep: label = "V3.13.0" if state.get("story_revision") == "deepening-2" else "V3.12.1"
     lines=["THE DESCENT "+label+" / 文字通道",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
@@ -129,7 +129,7 @@ def register_ai_routes(app, db, token_key, get_session):
             model_mode="model" if q.get("model")=="1" else "free"
             if model_mode=="model" and not configured():
                 return document("语义模型尚未配置或当前不可用。请移除 model=1，以免费模式开始。",503)
-            profile={"edition":"v39","model_mode":model_mode,"story_revision":"deepening-1"}
+            profile={"edition":"v39","model_mode":model_mode,"story_revision":"deepening-2"}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:

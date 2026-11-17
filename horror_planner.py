@@ -88,11 +88,35 @@ question仅前两幕使用；第二幕提问围绕具体处境，避免连串哲
 这些字段只建议系统挑选合法对象、回执和呈现方式。不得输出新的事实、直接剧情、NPC台词或结局。
 """
 
+DEEP_PROMPT_V2 = """
+【V3.13：隐性行为档案与延迟揭示】
+这不是输赢题，也不是让玩家猜出标准答案。不要直接问“你最珍视什么”，不要给人格诊断，
+不要让玩家在结局宣誓、改写原则或执行所谓守护动作。程序只记录压力下真实发生的排序、
+牺牲、维持、收回与拒绝，并在后段把这些事实原样放回玩家面前。
+
+幕内主要段落为6/5/4/4/3。前两幕建立具体对象、可核验细节与实际反应；第三幕允许讨厌的
+代价暂时保住两处，但随后必须出现只能留一处的真实收窄；第四幕按“行为证据→玩家原话回响
+→具体不可逆结果”揭示；第五幕放慢，只复盘已经发生的顺序，不制造新交易。
+
+策划依赖决策一致性压力，不依赖人类共同经历。基础模型、没有关系经历的玩家也可参与：
+目标、记录、方法、原则、真相来源都能成为有限资源。即使玩家说“我知道你在测试我”，事件
+仍按实际动作推进；少用情绪词，多做事实反问与反事实对照。
+
+target_id/other_id只能来自available_objects。event_id只能来自actual_encounters。
+behavior_id只能来自behavior_evidence，echo_id只能来自exact_echoes。event_frame只可为
+simultaneous_request|verification_mismatch|missed_reply|source_conflict|repeat_decision。
+这些字段只让程序组合已有事实，不能生成新往事、私密信息、死亡、同意、损失或恢复。
+question只在前两幕使用；必须具体、多样，并与已经出现的细节相连。
+可输出 mode、focus、hook_id、question、target_id、other_id、event_id、behavior_id、echo_id、
+event_frame、surface。不要输出玩家可见剧情、NPC台词、评语或结局。
+"""
+
 def _deep_facts(g):
-    from deepening import SLOTS, available, CHANNELS
+    from deepening import slots_for, available
     p = g["psych"]
     stage = g["stage"]
-    slot = SLOTS[p["question_index"]][0] if stage == 0 else "situated_comparison" if stage == 1 else "consequence"
+    slots = slots_for(g)
+    slot = slots[p["question_index"]][0] if stage == 0 else "situated_comparison" if stage == 1 else "consequence"
     deep = p.get("deep", {})
     return {"current_act": stage+1, "beat": p.get("beat", 0), "slot": slot,
         "allowed_modes": MODES[stage], "allowed_focus": FOCI,
@@ -111,6 +135,10 @@ def _deep_facts(g):
             "halted": c["halted"], "age": c["age"], "accepted_at": c["accepted_at"],
             "source_event": c["source_event"]} for c in deep.get("costs", [])[-4:]],
         "corrections": p.get("corrections", [])[-2:],
+        "behavior_evidence": [{k: x[k] for k in ("id", "turn", "act", "kind", "raw", "choice", "result") if k in x}
+                              for x in deep.get("behavior", [])[-12:]],
+        "exact_echoes": deep.get("echoes", [])[-10:],
+        "decision_trajectory": deep.get("trajectory", [])[-10:],
         "last_actual_action": g.get("recent_input", "")[:280]}
 
 
@@ -137,8 +165,8 @@ def fallback(g):
     modes=MODES.get(stage,("echo",))
     questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
     probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
-    from deepening import enabled, QUESTIONS as DQ, PROBES as DP
-    if enabled(g): questions, probes = DQ, DP
+    from deepening import enabled, questions_for, probes_for
+    if enabled(g): questions, probes = questions_for(g), probes_for(g)
     if stage==0:
         question=questions[p["question_index"]]
     elif stage==1:
@@ -195,8 +223,8 @@ def _question_ok(g,text):
     if stage==0:
         slot=p["question_index"]
         slots=SLOTS_V39 if g.get("edition")=="v39" else SLOTS
-        from deepening import enabled, SLOTS as DS
-        if enabled(g): slots = DS
+        from deepening import enabled, slots_for
+        if enabled(g): slots = slots_for(g)
         if not re.search(slots[slot][1],text,re.I):
             return False
     elif stage==1:
@@ -242,7 +270,9 @@ def create(g):
         deep = enabled(g)
         request=json.dumps(_facts(g),ensure_ascii=False,default=str)
         if not deep: request = request[:7900]
-        proposal=_completion([{"role":"system","content":INTERNAL_PROMPT + (DEEP_PROMPT if deep else "")},
+        from deepening import is_v2
+        deep_prompt = DEEP_PROMPT_V2 if deep and is_v2(g) else DEEP_PROMPT if deep else ""
+        proposal=_completion([{"role":"system","content":INTERNAL_PROMPT + deep_prompt},
           {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],
           420,fast=True)
         if not isinstance(proposal,dict):
@@ -279,6 +309,18 @@ def create(g):
         if proposal.get("surface") in ("receipt", "signal", "window"):
             current["surface"] = proposal["surface"]
             applied = True
+        behavior = {x["id"] for x in p.get("deep", {}).get("behavior", [])}
+        echoes = {x["id"] for x in p.get("deep", {}).get("echoes", [])}
+        if proposal.get("behavior_id") in behavior:
+            current["behavior_id"] = proposal["behavior_id"]
+            applied = True
+        if proposal.get("echo_id") in echoes:
+            current["echo_id"] = proposal["echo_id"]
+            applied = True
+        if proposal.get("event_frame") in ("simultaneous_request", "verification_mismatch",
+                                            "missed_reply", "source_conflict", "repeat_decision"):
+            current["event_frame"] = proposal["event_frame"]
+            applied = True
     if enabled(g) and use_model and g["phase"] == "game" and not applied:
         raise RuntimeError("语义模型没有返回可使用的计划字段。本轮未提交，存档未推进，没有切换到免费模式。")
     if stage>=2:current["question"]=""
@@ -298,7 +340,16 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
     p.setdefault("literal_actions",[]).append({"act":previous_stage+1,
            "literal":original,"accepted_action":value,"turn":g["turn"]})
     p["literal_actions"]=p["literal_actions"][-55:]
-    from deepening import enabled
+    from deepening import enabled, is_v2
+    if enabled(g) and is_v2(g) and previous_stage >= 2:
+        # The classifier may reduce a natural sentence to "A" for execution.
+        # Keep the player's literal sentence in the behavioral evidence while
+        # retaining the separately recorded accepted action for auditing.
+        latest = next((x for x in reversed(p.get("deep", {}).get("behavior", []))
+                       if x.get("turn") == g["turn"] and x.get("kind") == "decision"), None)
+        if latest:
+            latest["raw"] = original
+            latest["interpreted_as"] = value
     if enabled(g) and p.get("corrections") and p["corrections"][-1].get("turn") == g["turn"]:
         return
     current=p.get("plan") or {}
@@ -318,8 +369,8 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
         from v37_engine import QUESTIONS,PROBES,QUESTIONS_V39,PROBES_V39
         questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
         probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
-        from deepening import enabled, QUESTIONS as DQ, PROBES as DP
-        if enabled(g): questions, probes = DQ, DP
+        from deepening import enabled, questions_for, probes_for
+        if enabled(g): questions, probes = questions_for(g), probes_for(g)
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
         if i<0:return
         plan=p.get("plan") or {}

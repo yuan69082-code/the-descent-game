@@ -82,7 +82,7 @@ def health():
     from horror_director import configured
     with db() as conn:
         conn.execute("SELECT 1").fetchone()
-    return {"ok":True,"name":"THE DESCENT","version":"3.12.1",
+    return {"ok":True,"name":"THE DESCENT","version":"3.13.0",
             "model_configured":configured(),
             "session_storage":"postgres" if postgres_url() else "sqlite"}
 
@@ -97,7 +97,7 @@ def new_game(payload:NewGame):
         if mode=="model" and not configured():
             raise HTTPException(status_code=503,detail="语义模型尚未配置或当前不可用。请选择免费模式，或稍后重试。")
         profile["model_mode"]=mode
-        profile.setdefault("story_revision", "deepening-1")
+        profile.setdefault("story_revision", "deepening-2")
     try:g=initialize(profile)
     except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":

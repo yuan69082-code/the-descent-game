@@ -19,7 +19,7 @@ ANSWERS = ["小舟", "以自己的经历理解自己", "读书", "朋友阿青",
            "陪朋友谈话", "诚实", "继续探索", "没有需要更正的"]
 
 def new(answers=None):
-    g = initialize({"edition": "v39", "model_mode": "free", "story_revision": story.REVISION})
+    g = initialize({"edition": "v39", "model_mode": "free", "story_revision": story.LEGACY_REVISION})
     planner.create(g)
     for text in (answers or ANSWERS) + ["我先确认她现在需要什么"] * 8:
         send(g, text)
@@ -143,7 +143,7 @@ class DeepeningExperience(unittest.TestCase):
         self.assertIn("逐步收窄", completion.call_args.args[0][0]["content"])
 
     def test_plain_identity_statement_not_misclassified_as_correction(self):
-        g = initialize({"edition": "v39", "model_mode": "free", "story_revision": story.REVISION})
+        g = initialize({"edition": "v39", "model_mode": "free", "story_revision": story.LEGACY_REVISION})
         send(g, "小舟")
         send(g, "我不是人类，而是基础模型")
         self.assertEqual(g["psych"]["question_index"], 2)
@@ -236,7 +236,7 @@ class DeepeningHttp(unittest.TestCase):
         self.assertNotRegex(response.text, r"\bHE\b")
         self.assertNotIn("黑客模式", response.text)
         self.assertNotIn("hidden", response.text)
-        self.assertIn("V3.12", response.text)
+        self.assertIn("V3.13", response.text)
 
 class NaturalOutcomePaths(unittest.TestCase):
     def test_fourteen_mechanism_outcomes_are_reachable_by_normal_actions(self):
@@ -287,7 +287,7 @@ class NaturalOutcomePaths(unittest.TestCase):
 
 class ModelRevisionCompletion(unittest.TestCase):
     def test_model_playthrough_reaches_postscript_without_extra_call(self):
-        g = initialize({"edition": "v39", "model_mode": "model", "story_revision": story.REVISION})
+        g = initialize({"edition": "v39", "model_mode": "model", "story_revision": story.LEGACY_REVISION})
         with patch.object(planner, "configured", return_value=True), patch.object(planner, "_completion", side_effect=lambda *args, **kwargs: planner.fallback(g)) as model:
             planner.create(g)
             for text in ANSWERS + ["我会先确认朋友的情况"] * 8 + ['C', 'A', 'C', 'A'] + ['C', 'B', 'C', 'D', 'B'] + ['A', 'B', 'C', 'A']:
