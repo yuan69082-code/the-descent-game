@@ -1,0 +1,26 @@
+name: Causal horror regression
+on:
+  push:
+    branches: [fix/causal-horror-feedback]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: git archive --format=tar HEAD -o source.tar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: causal-horror-source
+          path: source.tar
+          retention-days: 3
+      - run: pip install -r requirements.txt 'httpx>=0.27,<1.0'
+      - run: python -m compileall -q .
+      - run: node --check static/client.js
+      - run: python -m unittest discover -s tests -p 'test_*.py' -v
