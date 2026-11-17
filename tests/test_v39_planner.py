@@ -141,7 +141,7 @@ class BackstagePlannerV39(unittest.TestCase):
         with patch.object(planner,"configured",return_value=False):
             client=TestClient(app)
             page=client.get("/")
-            self.assertIn("V3.9",page.text)
+            self.assertIn("V3.13",page.text)
             r=client.post("/api/new",json={"profile":{"edition":"v39"}})
             self.assertEqual(r.status_code,201,r.text)
             sid=r.json()["token"]
@@ -155,7 +155,7 @@ class BackstagePlannerV39(unittest.TestCase):
             again=client.get("/api/state",headers={"X-Session":sid})
             self.assertEqual(again.json()["scene"],answer.json()["scene"])
             ai=client.get("/ai/start",params={"agree":"1"})
-            self.assertIn("V3.9",ai.text)
+            self.assertIn("V3.13",ai.text)
             self.assertNotIn("model_prompt",ai.text)
             client.close()
 
@@ -205,7 +205,7 @@ class BackstagePlannerV39(unittest.TestCase):
             start=web.post("/api/new",json={"profile":{"edition":"v39","model_mode":"model"}})
             self.assertEqual(start.status_code,201)
             sid=start.json()["token"]
-            self.assertIn("怎样称呼你",start.json()["state"]["scene"]["body"])
+            self.assertIn("怎么称呼你",start.json()["state"]["scene"]["body"])
             self.assertNotIn(valid["body"],start.json()["state"]["scene"]["body"])
             for _ in range(4):
                 repeated=web.get("/api/state",headers={"X-Session":sid})
@@ -220,7 +220,8 @@ class BackstagePlannerV39(unittest.TestCase):
             self.assertEqual(dup.status_code,409)
             self.assertEqual(fake.call_count,2)
             exported=web.get("/api/export",headers={"X-Session":sid}).json()
-            self.assertEqual(exported["narrative"]["question_log"][0]["asked"],valid["question"])
+            self.assertEqual(exported["narrative"]["question_log"][0]["asked"],
+                             "在开始之前，怎么称呼你比较合适？")
             web.close()
 
     def test_a_later_act_is_a_system_scene_not_v37_paperwork(self):

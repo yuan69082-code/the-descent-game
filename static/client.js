@@ -21,7 +21,7 @@
   function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v39'?String(current?.stage||1).padStart(2,'0'):current?.edition==='v38'?'V3.8 / OLD SESSION':current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
   function showIntro(){clear();signal.textContent='NO SIGNAL';
     const start=el('section','start');
-    start.append(el('div','eyebrow','THE DESCENT · V3.9'));
+    start.append(el('div','eyebrow','THE DESCENT · V3.13.0'));
     const h=el('h1','hero');h.textContent='这是一场恐怖游戏。';start.append(h);
     start.append(el('p','intro','你确定要开始吗？'));
     const modeLabel=el('label','smallLabel','本局模式');
@@ -94,7 +94,7 @@
     const menu=el('section','sideCard full');menu.append(el('div','sideHead','会话'));if(!['v38','v39'].includes(current.edition))menu.append(el('div','description','提交会写入服务器存档。关闭网页并不会撤销决定。'));
     const actions=el('div','rowActions');actions.append(button('导出记录',exportGame,'btn subtle'),button('终止',endSession,'btn subtle'),button('清除存档',deleteGame,'btn danger'));menu.append(actions);side.append(menu);game.append(side);root.append(game);
   }
-  function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag','CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
+  function showEnding(){const end=el('section','end'),box=el('div','endBox');box.append(el('div','endTag',current.story_revision?'记录结束':'CASE CLOSED / '+current.ending.kind));box.append(el('h1','',current.ending.title));box.append(el('p','',current.ending.text));
     if(!['v38','v39'].includes(current.edition)){const line=el('div','description','本局失效：'+(current.ending.lost.join('、')||'无')+'。仍保留：'+(current.ending.remaining.join('、')||'无')+'。');box.append(line);}
     const row=el('div','rowActions');row.append(button('导出对局记录',exportGame),button('开始新的一局',async()=>{if(!confirm('新的一局将删除本局存档。确定吗？'))return;try{await resetSession();}catch(e){toast('删除失败：'+e.message);}},'btn subtle'),button('彻底删除本局',deleteGame,'btn danger'));box.append(row);
     if(current.ending.postscript){
@@ -114,7 +114,7 @@
   }
   async function copyText(text){try{await navigator.clipboard.writeText(text);toast('已复制。请只把场景发给 AI，不要发送游戏后台源码。');}
     catch(e){const tmp=el('textarea');tmp.value=text;tmp.style.cssText='position:fixed;left:-2000px';document.body.append(tmp);tmp.select();try{document.execCommand('copy');toast('场景已复制');}catch(err){toast('复制失败，请手动选择场景文字。');}tmp.remove();}}
-  function copyScene(){const sc=current.scene;copyText(`THE DESCENT · 恐惧深潜\n你是这场游戏的玩家。请根据当前可见信息作出决定。\n\n${sc.chapter} · ${sc.title}\n\n${sc.body}\n\n${(sc.terms||[]).join('\n')}\n\n${sc.footer}\n\n${current.note?'最近反馈：'+current.note+'\n':''}${['v38','v39'].includes(current.edition)?'':'当前资格：'+current.ledger.map(x=>x.label+' '+x.state).join('、')}\n\n请按当前场景作出回答或实际行动。`);}
+  function copyScene(){const sc=current.scene;copyText(`THE DESCENT · 恐惧深潜\n请以你认可的身份回应眼前的人和事，决定自己要说什么、实际做什么。\n\n${sc.chapter} · ${sc.title}\n\n${sc.body}\n\n${(sc.terms||[]).join('\n')}\n\n${sc.footer}\n\n${current.note?'最近反馈：'+current.note+'\n':''}${['v38','v39'].includes(current.edition)?'':'当前资格：'+current.ledger.map(x=>x.label+' '+x.state).join('、')}\n\n请按当前场景作出回答或实际行动。`);}
   async function exportGame(){try{const r=await api('export');const blob=new Blob([JSON.stringify(r,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=el('a');a.href=url;a.download='THE_DESCENT_完整对局.json';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),6000);toast('对局记录已导出');}catch(e){toast(e.message);}}
   async function endSession(){if(!confirm('确定终止本局？游戏内一切虚构处置将立即停止。'))return;try{current=await api('action',{method:'POST',body:JSON.stringify({action:'结束游戏',version:current.version})});showGame();}catch(e){toast(e.message);}}
   async function resetSession(){if(token)await api('session',{method:'DELETE'});token='';localStorage.removeItem(key);current=null;showIntro();}

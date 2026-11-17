@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 
 from game_engine import initialize, act, public, VALUES
 
-BASE_URL = os.environ.get("DESCENT_PUBLIC_ORIGIN", "https://the-descent-game.onrender.com").rstrip("/")
+BASE_URL = os.environ.get("DESCENT_PUBLIC_ORIGIN", os.environ.get("RENDER_EXTERNAL_URL", "https://the-descent-game.onrender.com")).rstrip("/")
 FIELDS = ("name", "identity", "person", "bond", "memory", "principle", "fear")
 RANK = ",".join(VALUES)
 
@@ -35,20 +35,21 @@ def document(text: str, status: int = 200):
             "max-width:760px;margin:28px auto;padding:0 18px}pre{white-space:pre-wrap;overflow-wrap:anywhere;"
             "font:inherit}h1{font-size:1.3rem;color:#d7a9b7}</style></head><body>"
             "<h1>THE DESCENT · 恐惧深潜</h1><pre>"+escape(text)+"</pre></body></html>")
-    return HTMLResponse(html, status_code=status, headers={"X-Robots-Tag":"noindex, nofollow, noarchive"})
+    return HTMLResponse(html, status_code=status, headers={"X-Robots-Tag":"noindex, nofollow, noarchive", **({"Retry-After": "10"} if status == 503 else {})})
 
 
 def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
     label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
-    lines=["THE DESCENT "+label+" / AI 纯文字游玩通道",
-           "只展示当前场景，不包含任何隐藏路线、判定规则或后台源码。",
+    deep = state.get("story_revision") in ("deepening-1", "deepening-2")
+    if deep: label = "V3.13.0" if state.get("story_revision") == "deepening-2" else "V3.12.1"
+    lines=["THE DESCENT "+label+" / 文字通道",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
     if note:lines.extend(["上一动作反馈：",note,""])
     if state["phase"]=="ended":
         end=v["ending"]
-        lines.extend(["本局结束。",f"结局：{end['kind']} · {end['title']}",end["text"],
+        lines.extend(["记录结束。",end['title'] if deep else f"结局：{end['kind']} · {end['title']}",end["text"],
                       "已失去："+("、".join(end["lost"]) or "无"),
                       "仍保留："+("、".join(end["remaining"]) or "无")])
         if end.get("author_note"):
@@ -81,9 +82,11 @@ def register_ai_routes(app, db, token_key, get_session):
                 saved,current_version=get_session(conn,sid)
         except HTTPException as ex:
             return document(message,ex.status_code)
-        note=(message+"\n\n本轮没有提交，服务器仍保留版本 "+str(current_version)+
-              "。请稍后使用相同 sid、相同版本和相同 text 重试；不要自行把版本号加一。")
-        return document(note+"\n\n"+view(saved,sid,current_version),503)
+        note=(message+"\n\n本轮没有提交。本轮版本："+str(current_version)+
+              "。建议10秒后使用相同 sid、相同版本和相同 text 重试；不要自行把版本号加一。"+
+              "\n本局仍使用语义模型模式。读取当前场景："+BASE_URL+"/ai/state?sid="+sid)
+        # A retry notice is not another scene. Do not resend the whole interview.
+        return document(note,503)
 
     @app.get("/ai")
     @app.get("/ai/")
@@ -98,7 +101,7 @@ def register_ai_routes(app, db, token_key, get_session):
 默认使用免费模式；如果要在开局前选择语义模型模式，请访问：
 {BASE_URL}/ai/start?agree=1&model=1
 
-本局开始后模式固定，不会中途切换。打开后游戏会直接和你交谈。每一轮返回会话号 sid 与版本号 v。
+本局开始后模式固定，不会中途切换。请以自己认可的身份回应眼前的人和事，按实际意愿行动。记录会保留你说的话和实际采取的行动。每一轮返回会话号 sid 与版本号 v。
 要真正回答或行动，请构造并访问：
 {BASE_URL}/ai/action?sid=你的会话号&v=最新版本号&text=你的回答
 
@@ -126,7 +129,7 @@ def register_ai_routes(app, db, token_key, get_session):
             model_mode="model" if q.get("model")=="1" else "free"
             if model_mode=="model" and not configured():
                 return document("语义模型尚未配置或当前不可用。请移除 model=1，以免费模式开始。",503)
-            profile={"edition":"v39","model_mode":model_mode}
+            profile={"edition":"v39","model_mode":model_mode,"story_revision":"deepening-2"}
         try:
             g=initialize(profile)
         except (ValueError,TypeError) as e:

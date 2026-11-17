@@ -5,9 +5,25 @@ import os
 import re
 import logging
 import time
+from contextvars import ContextVar
 from urllib.parse import urlparse
 
 _model_log=logging.getLogger("the_descent.model")
+_last_failure = ContextVar("descent_model_failure", default=None)
+
+
+def failure_hint():
+    """Request-local diagnostics only; no keys, prompts, replies or session IDs."""
+    item = _last_failure.get()
+    if not item:
+        return ""
+    reasons = {"timeout": "上游模型响应超时", "truncated": "上游模型输出被截断",
+               "empty_json": "上游模型没有返回正文", "empty_content": "上游模型没有返回正文",
+               "invalid_json": "上游模型未返回有效结构数据", "network_error": "上游模型连接中断",
+               "http_error": "上游模型服务返回错误", "provider_error": "上游模型返回错误"}
+    reason = reasons.get(item["category"], "上游模型本次未完成")
+    return reason + "（服务端已尝试" + str(item["attempt"]) + "次）。"
+
 
 NARRATOR="""你是《恐惧深潜》的恐怖故事主持人，不是客服、审计员、心理医生或规则讲解员。
 玩家已主动选择进入。不要解释它是游戏，不要安慰，不要免责声明，不要解释机制。
@@ -73,6 +89,7 @@ def _parse(raw):
 
 def _completion(messages,max_tokens,fast=False):
     """Bounded, provider-aware model request. Never logs keys, prompts or replies."""
+    _last_failure.set(None)
     if not configured():
         return None
     import httpx
@@ -84,10 +101,11 @@ def _completion(messages,max_tokens,fast=False):
              "messages":messages,"temperature":0.85}
     if is_deepseek:
         if fast:
-            # V3.9 structured decisions do not need high reasoning. Use a
-            # smaller output budget and bounded retry to avoid 25s stalls.
-            payload["max_tokens"]=2048 if planning else 768
-            payload["reasoning_effort"]="low" if planning else "none"
+            # Low effort still enables thinking. Short JSON planning and intent
+            # extraction explicitly use the same model in non-thinking mode.
+            payload["max_tokens"]=1024 if planning else 384
+            payload["thinking"]={"type":"disabled"}
+            payload["reasoning_effort"]="none"
         else:
             # Preserve the established V3.8 director request profile.
             payload["max_tokens"]=max(3072 if planning else 1024,max_tokens*4)
@@ -113,6 +131,7 @@ def _completion(messages,max_tokens,fast=False):
         time.sleep(delay)
 
     def safe_failure(category,attempt,exc=None,status=None):
+        _last_failure.set({"category": category, "attempt": attempt, "status": status})
         _model_log.warning(
             "model_request_failed provider=%s category=%s class=%s http_status=%s attempt=%s/%s",
             host,category,type(exc).__name__ if exc else "none",
@@ -360,7 +379,7 @@ def interpret(g,raw,mode=""):
                          190,fast=edition=="v39")
     if not response:
         if edition=="v39" and g.get("model_mode")=="model":
-            raise RuntimeError("语义模型暂时没有返回有效的理解结果；本轮没有切换到免费模式，请稍后重试。")
+            raise RuntimeError(failure_hint()+"语义模型暂时没有返回有效的理解结果；本轮没有切换到免费模式。建议10秒后重试同一行动。")
         return raw,mode
     kind=response.get("kind")
     if kind=="choose":

@@ -61,6 +61,9 @@ def initialize(profile: dict[str, Any]) -> dict[str, Any]:
             g["psych"]["question_log"]=[]
             g["psych"]["plan"]=None
             g["psych"]["literal_actions"]=[]
+            if profile.get("story_revision") in ("deepening-1", "deepening-2"):
+                g["story_revision"] = profile["story_revision"]
+                g["psych"]["deep"] = {"costs": [], "events": [], "missed": [], "final_actions": []}
         return g
     required = ["name", "identity", "person", "bond", "memory", "principle", "fear"]
     p = {k:s(profile.get(k), 260 if k not in ("name", "person") else 70) for k in required}

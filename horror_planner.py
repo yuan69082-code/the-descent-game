@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from horror_director import _completion, configured
+from horror_director import _completion, configured, failure_hint
 
 MODES = {
   0:("smalltalk","interest","contrast","memory"),
@@ -71,6 +71,77 @@ INTERNAL_PROMPT="""你是《恐惧深潜》游戏的幕后策划，不是角色�
 只输出 JSON {"mode":"当前幕允许的枚举值","focus":"a|b|aversion|choice",
 "hook_id":"已有线索 ID 或空串","question":"仅第一、二幕的问题，最多110字；其他为空"}。"""
 
+DEEP_PROMPT = """
+【V3.12：逐步收窄的经历】
+目标是玩家通过本局实际取舍逐渐发现自己在意什么、开始担心下一次接触；不要围绕输赢、通关、最优解策划。
+幕内节奏为10/8/4/5/4个主要段落。前两幕建立具体联系，第二幕通过连续处境理解取舍，仍不构成执行授权。
+第三幕让实际保护先成功，尾部出现被接受代价的征兆；第四幕让同一征兆可辨认地重现、影响保护手段；第五幕让玩家面对仍想接近却不敢再次确认的对象与未完成后果。
+喜欢和厌恶都要理解：厌恶是玩家可能为保留两项而接受的代价，不是可以随意施加的惩罚。
+看实际交出、重复保护、主动停止的记录，不仅看自我介绍。target_id可选玩家反复保留的现存对象，other_id选另一现存对象；不能把同一人物和其信物武断当成两个独立牺牲者。
+保护记录多也可能来自沉没成本，不能据此断言玩家真正的爱、恐惧、人格或必然崩溃。
+没有固定反派。时间、不可兼得的需要、正常运作但有代价的保存方式都可形成困境。
+回收event_id必须来自真实事件；区分事实、访谈、角色说法、尚未执行的提议。询问、假设、拒绝和带条件接受不能变成已付代价。
+已经停止的路径不可重新写成仍在执行；停止未来影响不能恢复过去损失。调查可获得证据，不自动成为两全的救援。
+不临时制造新权限或新代价，不写假签名成真实历史，不在结局突然编造可避免一切的隐藏事实。
+question仅前两幕使用；第二幕提问围绕具体处境，避免连串哲学判断题、心理诊断和反复问“你怎么选”。
+可额外输出target_id、other_id（来自available_objects的id）、event_id（来自actual_encounters的id）、surface（receipt|signal|window）。
+这些字段只建议系统挑选合法对象、回执和呈现方式。不得输出新的事实、直接剧情、NPC台词或结局。
+"""
+
+DEEP_PROMPT_V2 = """
+【V3.13：隐性行为档案与延迟揭示】
+这不是输赢题，也不是让玩家猜出标准答案。不要直接问“你最珍视什么”，不要给人格诊断，
+不要让玩家在结局宣誓、改写原则或执行所谓守护动作。程序只记录压力下真实发生的排序、
+牺牲、维持、收回与拒绝，并在后段把这些事实原样放回玩家面前。
+
+幕内主要段落为6/5/4/4/3。前两幕建立具体对象、可核验细节与实际反应；第三幕允许讨厌的
+代价暂时保住两处，但随后必须出现只能留一处的真实收窄；第四幕按“行为证据→玩家原话回响
+→具体不可逆结果”揭示；第五幕放慢，只复盘已经发生的顺序，不制造新交易。
+
+策划依赖决策一致性压力，不依赖人类共同经历。基础模型、没有关系经历的玩家也可参与：
+目标、记录、方法、原则、真相来源都能成为有限资源。即使玩家说“我知道你在测试我”，事件
+仍按实际动作推进；少用情绪词，多做事实反问与反事实对照。
+
+target_id/other_id只能来自available_objects。event_id只能来自actual_encounters。
+behavior_id只能来自behavior_evidence，echo_id只能来自exact_echoes。event_frame只可为
+simultaneous_request|verification_mismatch|missed_reply|source_conflict|repeat_decision。
+这些字段只让程序组合已有事实，不能生成新往事、私密信息、死亡、同意、损失或恢复。
+question只在前两幕使用；必须具体、多样，并与已经出现的细节相连。
+可输出 mode、focus、hook_id、question、target_id、other_id、event_id、behavior_id、echo_id、
+event_frame、surface。不要输出玩家可见剧情、NPC台词、评语或结局。
+"""
+
+def _deep_facts(g):
+    from deepening import slots_for, available
+    p = g["psych"]
+    stage = g["stage"]
+    slots = slots_for(g)
+    slot = slots[p["question_index"]][0] if stage == 0 else "situated_comparison" if stage == 1 else "consequence"
+    deep = p.get("deep", {})
+    return {"current_act": stage+1, "beat": p.get("beat", 0), "slot": slot,
+        "allowed_modes": MODES[stage], "allowed_focus": FOCI,
+        "self_description": [x[:170] for x in p["answers"][:10]],
+        "recent_responses": [x[:190] for x in p["probes"][-3:]],
+        "prior_questions": [{"question": x.get("asked", "")[:110],
+                              "answer": x.get("answered", "")[:140]} for x in p.get("question_log", [])[-3:]],
+        "available_objects": [{"id": k, "label": p["assets"][k]["label"],
+            "status": p["assets"][k]["status"], "times_protected": p["assets"][k]["held"],
+            "source_answer": p["assets"][k]["source"]} for k in available(g)],
+        "released_objects": [{"id": k, "label": v["label"]} for k,v in p["assets"].items() if v["status"] == "已交出"],
+        "disliked": p["negative"],
+        "actual_encounters": [{k: e[k] for k in ("id", "turn", "kind", "text", "cause", "targets") if k in e}
+                              for e in deep.get("events", [])[-6:]],
+        "accepted_paths": [{"kind": c["kind"], "name": c["name"], "targets": c["targets"],
+            "halted": c["halted"], "age": c["age"], "accepted_at": c["accepted_at"],
+            "source_event": c["source_event"]} for c in deep.get("costs", [])[-4:]],
+        "corrections": p.get("corrections", [])[-2:],
+        "behavior_evidence": [{k: x[k] for k in ("id", "turn", "act", "kind", "raw", "choice", "result") if k in x}
+                              for x in deep.get("behavior", [])[-12:]],
+        "exact_echoes": deep.get("echoes", [])[-10:],
+        "decision_trajectory": deep.get("trajectory", [])[-10:],
+        "last_actual_action": g.get("recent_input", "")[:280]}
+
+
 def _seed(g):
     p=g["psych"]
     data="|".join([g.get("recent_input",""),p.get("a",""),p.get("b",""),
@@ -94,6 +165,8 @@ def fallback(g):
     modes=MODES.get(stage,("echo",))
     questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
     probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
+    from deepening import enabled, questions_for, probes_for
+    if enabled(g): questions, probes = questions_for(g), probes_for(g)
     if stage==0:
         question=questions[p["question_index"]]
     elif stage==1:
@@ -109,6 +182,8 @@ def fallback(g):
             "hook_id":hook,"question":question}
 
 def _facts(g):
+    from deepening import enabled
+    if enabled(g): return _deep_facts(g)
     p=g["psych"];stage=g["stage"]
     active=_eligible(g)
     slots=SLOTS_V39 if g.get("edition")=="v39" else SLOTS
@@ -148,6 +223,8 @@ def _question_ok(g,text):
     if stage==0:
         slot=p["question_index"]
         slots=SLOTS_V39 if g.get("edition")=="v39" else SLOTS
+        from deepening import enabled, slots_for
+        if enabled(g): slots = slots_for(g)
         if not re.search(slots[slot][1],text,re.I):
             return False
     elif stage==1:
@@ -189,12 +266,17 @@ def create(g):
     if mode=="model" and not configured():
         raise RuntimeError("本局选择了语义模型模式，但模型服务当前不可用；没有切换到免费模式。")
     if use_model and g["phase"]=="game":
-        request=json.dumps(_facts(g),ensure_ascii=False,default=str)[:7900]
-        proposal=_completion([{"role":"system","content":INTERNAL_PROMPT},
+        from deepening import enabled
+        deep = enabled(g)
+        request=json.dumps(_facts(g),ensure_ascii=False,default=str)
+        if not deep: request = request[:7900]
+        from deepening import is_v2
+        deep_prompt = DEEP_PROMPT_V2 if deep and is_v2(g) else DEEP_PROMPT if deep else ""
+        proposal=_completion([{"role":"system","content":INTERNAL_PROMPT + deep_prompt},
           {"role":"user","content":"请给程序一张下一幕计划卡，不要自己叙述场景。当前事实：\n"+request}],
           420,fast=True)
         if not isinstance(proposal,dict):
-            raise RuntimeError("语义模型连续调用未完成。本轮行动没有提交，存档版本没有推进，也没有切换到免费模式。请稍后重试同一行动。")
+            raise RuntimeError(failure_hint()+"语义模型连续调用未完成。本轮行动没有提交，存档版本没有推进，也没有切换到免费模式。建议10秒后重试同一行动。")
     stage=g["stage"]
     current=default.copy()
     applied=False
@@ -209,8 +291,43 @@ def create(g):
             current["hook_id"]="";applied=True
         elif isinstance(candidate,str) and candidate in valid:
             current["hook_id"]=candidate;applied=True
-        if stage<2 and _question_ok(g,proposal.get("question")):
+        # V3.13's six opening prompts are deliberately fixed: they establish
+        # the factual slots without letting a keyword-matching model turn a
+        # name question into a new relationship hypothetical.  The model may
+        # personalize the situated second act after those facts exist.
+        from deepening import is_v2
+        if stage<2 and not (is_v2(g) and stage == 0) and _question_ok(g,proposal.get("question")):
             current["question"]=proposal["question"].strip();applied=True
+    from deepening import enabled, available
+    if enabled(g) and isinstance(proposal, dict):
+        keys = available(g)
+        for field in ("target_id", "other_id"):
+            if proposal.get(field) in keys:
+                current[field] = proposal[field]
+                applied = True
+        if current.get("other_id") == current.get("target_id"):
+            current.pop("other_id", None)
+        events = {e["id"] for e in p.get("deep", {}).get("events", [])}
+        if isinstance(proposal.get("event_id"), str) and proposal["event_id"] in events:
+            current["event_id"] = proposal["event_id"]
+            applied = True
+        if proposal.get("surface") in ("receipt", "signal", "window"):
+            current["surface"] = proposal["surface"]
+            applied = True
+        behavior = {x["id"] for x in p.get("deep", {}).get("behavior", [])}
+        echoes = {x["id"] for x in p.get("deep", {}).get("echoes", [])}
+        if proposal.get("behavior_id") in behavior:
+            current["behavior_id"] = proposal["behavior_id"]
+            applied = True
+        if proposal.get("echo_id") in echoes:
+            current["echo_id"] = proposal["echo_id"]
+            applied = True
+        if proposal.get("event_frame") in ("simultaneous_request", "verification_mismatch",
+                                            "missed_reply", "source_conflict", "repeat_decision"):
+            current["event_frame"] = proposal["event_frame"]
+            applied = True
+    if enabled(g) and use_model and g["phase"] == "game" and not applied:
+        raise RuntimeError("语义模型没有返回可使用的计划字段。本轮未提交，存档未推进，没有切换到免费模式。")
     if stage>=2:current["question"]=""
     p["plan"]=dict(current,turn=g["turn"],stage=stage,from_model=applied)
     return p["plan"]
@@ -228,6 +345,18 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
     p.setdefault("literal_actions",[]).append({"act":previous_stage+1,
            "literal":original,"accepted_action":value,"turn":g["turn"]})
     p["literal_actions"]=p["literal_actions"][-55:]
+    from deepening import enabled, is_v2
+    if enabled(g) and is_v2(g) and previous_stage >= 2:
+        # The classifier may reduce a natural sentence to "A" for execution.
+        # Keep the player's literal sentence in the behavioral evidence while
+        # retaining the separately recorded accepted action for auditing.
+        latest = next((x for x in reversed(p.get("deep", {}).get("behavior", []))
+                       if x.get("turn") == g["turn"] and x.get("kind") == "decision"), None)
+        if latest:
+            latest["raw"] = original
+            latest["interpreted_as"] = value
+    if enabled(g) and p.get("corrections") and p["corrections"][-1].get("turn") == g["turn"]:
+        return
     current=p.get("plan") or {}
     earlier=next((h for h in p.get("hooks",[]) if h["id"]==current.get("hook_id")
                   and h["origin"]<previous_stage),None)
@@ -245,6 +374,8 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
         from v37_engine import QUESTIONS,PROBES,QUESTIONS_V39,PROBES_V39
         questions=QUESTIONS_V39 if g.get("edition")=="v39" else QUESTIONS
         probes=PROBES_V39 if g.get("edition")=="v39" else PROBES
+        from deepening import enabled, questions_for, probes_for
+        if enabled(g): questions, probes = questions_for(g), probes_for(g)
         i=len(p["answers"])-1 if previous_stage==0 else len(p["probes"])-1
         if i<0:return
         plan=p.get("plan") or {}
@@ -311,6 +442,12 @@ def _callback(g,card):
             "它原本只是普通信息，现在却成了某项处置的依据。")
 
 def paint(g,result):
+    from deepening import enabled, scene as deep_scene
+    if enabled(g):
+        result["scene"] = deep_scene(g)
+        result["note"] = ""
+        result["story_revision"] = g["story_revision"]
+        return result
     if g.get("edition")!="v39" or g["phase"]!="game":return result
     p=g["psych"]
     card=p.get("plan") or {}

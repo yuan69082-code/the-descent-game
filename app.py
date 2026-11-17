@@ -20,27 +20,22 @@ app = FastAPI(title="THE DESCENT", docs_url=None, redoc_url=None, openapi_url=No
 app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
 
 
-def init_db():
-    with sqlite3.connect(str(DB), timeout=10) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("CREATE TABLE IF NOT EXISTS game_sessions (token_hash TEXT PRIMARY KEY, state_json TEXT NOT NULL, updated_at REAL NOT NULL, version INTEGER NOT NULL DEFAULT 0)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_updated ON game_sessions(updated_at)")
+from session_storage import postgres_url
 
-init_db()
+
+def init_db():
+    from session_storage import initialize_database
+    initialize_database(DB)
+
 
 @contextmanager
 def db(write=False):
-    conn=sqlite3.connect(str(DB),timeout=12)
-    conn.row_factory=sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=12000")
-    if write: conn.execute("BEGIN IMMEDIATE")
-    try:
+    from session_storage import connection
+    with connection(DB, write) as conn:
         yield conn
-        if write:conn.commit()
-    except Exception:
-        if write:conn.rollback()
-        raise
-    finally:conn.close()
+
+
+init_db()
 
 
 def token_key(token:str)->str:
@@ -85,8 +80,11 @@ def index():
 @app.get("/healthz")
 def health():
     from horror_director import configured
-    return {"ok":True,"name":"THE DESCENT","version":"3.9",
-            "model_configured":configured()}
+    with db() as conn:
+        conn.execute("SELECT 1").fetchone()
+    return {"ok":True,"name":"THE DESCENT","version":"3.13.0",
+            "model_configured":configured(),
+            "session_storage":"postgres" if postgres_url() else "sqlite"}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):
@@ -99,6 +97,7 @@ def new_game(payload:NewGame):
         if mode=="model" and not configured():
             raise HTTPException(status_code=503,detail="语义模型尚未配置或当前不可用。请选择免费模式，或稍后重试。")
         profile["model_mode"]=mode
+        profile.setdefault("story_revision", "deepening-2")
     try:g=initialize(profile)
     except (ValueError,TypeError) as ex:raise HTTPException(status_code=422,detail=str(ex))
     if g.get("edition")=="v38":
@@ -107,7 +106,7 @@ def new_game(payload:NewGame):
     if g.get("edition")=="v39":
         from horror_planner import create
         try:create(g)
-        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex))
+        except RuntimeError as ex:raise HTTPException(status_code=503,detail=str(ex),headers={"Retry-After":"10"})
     token=secrets.token_urlsafe(32)
     with db(True) as conn:
         # Expire old sessions after 14 days; nothing is transmitted to analytics.
@@ -140,7 +139,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         if model_enabled(g):
             try:action_text,action_mode=interpret(g,action_text,action_mode)
             except RuntimeError as ex:
-                raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
+                raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex),headers={"Retry-After":"10"})
     old_stage=g["stage"]
     try:act(g,action_text,action_mode)
     except ValueError as ex:raise HTTPException(status_code=422,detail=str(ex))
@@ -152,7 +151,7 @@ def action(payload:Action,x_session:str=Header(default="")):
         remember(g,action_text,old_stage,payload.action,action_mode)
         try:create(g)
         except RuntimeError as ex:
-            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex))
+            raise HTTPException(status_code=503,detail="本轮未提交，存档版本没有推进。"+str(ex),headers={"Retry-After":"10"})
     # Never hold a SQLite write lock while awaiting a paid model response.
     # Conditional update rejects a second concurrent decision for the same version.
     with db(True) as conn:
@@ -185,7 +184,11 @@ def export(x_session:str=Header(default="")):
             out["narrative"]={"model_mode":g.get("model_mode","free"),
                               "plan":story.get("plan"),"hooks":story.get("hooks",[]),
                               "question_log":story.get("question_log",[]),
-                              "literal_actions":story.get("literal_actions",[])}
+                              "literal_actions":story.get("literal_actions",[]),
+                              "story_revision":g.get("story_revision", "legacy"),
+                              "encounters":story.get("deep", {}).get("events", []),
+                              "accepted_paths":story.get("deep", {}).get("costs", []),
+                              "protected_objects":story.get("assets", {})}
     if "story_v35" in g:
         story=g["story_v35"]
         out["experience"]={"first_words":story.get("first_words",""),

@@ -102,13 +102,14 @@ class DeepSeekTransportTests(unittest.TestCase):
     def valid(self):
         return _Response(json.dumps(PLAN,ensure_ascii=False))
 
-    def test_planning_uses_low_reasoning_and_retries_one_read_timeout(self):
+    def test_planning_disables_thinking_and_retries_one_read_timeout(self):
         _FakeClient.reset([httpx.ReadTimeout("read timed out"),self.valid()])
         result=horror_director._completion([{"role":"system","content":"plan"}],420,fast=True)
         self.assertEqual(result,PLAN)
         self.assertEqual(_FakeClient.calls,2)
-        self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"low")
-        self.assertEqual(_FakeClient.payloads[0]["max_tokens"],2048)
+        self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"none")
+        self.assertEqual(_FakeClient.payloads[0]["thinking"],{"type":"disabled"})
+        self.assertEqual(_FakeClient.payloads[0]["max_tokens"],1024)
         self.assertEqual(_FakeClient.timeouts[0].read,32)
 
     def test_small_classifier_uses_nonthinking_mode_and_short_timeout(self):
@@ -117,7 +118,7 @@ class DeepSeekTransportTests(unittest.TestCase):
         self.assertEqual(result,PLAN)
         self.assertEqual(_FakeClient.calls,1)
         self.assertEqual(_FakeClient.payloads[0]["reasoning_effort"],"none")
-        self.assertEqual(_FakeClient.payloads[0]["max_tokens"],768)
+        self.assertEqual(_FakeClient.payloads[0]["max_tokens"],384)
         self.assertEqual(_FakeClient.timeouts[0].read,15)
 
     def test_blank_json_output_is_retried_once(self):
@@ -184,6 +185,9 @@ class AIActionRecoveryTests(unittest.TestCase):
             })
             self.assertEqual(failed.status_code,503)
             self.assertIn("本轮没有提交",failed.text)
+            self.assertEqual(failed.headers["Retry-After"], "10")
+            self.assertIn("/ai/state?sid=", failed.text)
+            self.assertNotIn("【01】", failed.text)
             self.assertIn("本轮版本：0",failed.text)
 
             retried=self.client.get("/ai/action",params={
@@ -203,3 +207,48 @@ class AIActionRecoveryTests(unittest.TestCase):
 
 if __name__=="__main__":
     unittest.main()
+
+class ShortTaskTransportTests(unittest.TestCase):
+    def setUp(self):
+        self.env=patch.dict(os.environ,{
+            'HORROR_LLM_API_KEY':'test-key-not-a-real-secret',
+            'HORROR_LLM_MODEL':'deepseek-v4-pro',
+            'HORROR_LLM_BASE_URL':'https://api.deepseek.com'})
+        self.env.start()
+    def tearDown(self):
+        self.env.stop()
+
+    def test_classifier_disables_thinking_explicitly(self):
+        _FakeClient.reset([_Response(json.dumps({'kind':'none','choice':''}))])
+        with patch('httpx.Client',_FakeClient):
+            result=horror_director._completion([{'role':'user','content':'fictional action'}],190,fast=True)
+        self.assertEqual(result['kind'],'none')
+        self.assertEqual(_FakeClient.payloads[0]['thinking'],{'type':'disabled'})
+        self.assertEqual(_FakeClient.payloads[0]['reasoning_effort'],'none')
+        self.assertEqual(_FakeClient.calls,1)
+
+    def test_legacy_director_keeps_its_reasoning_profile(self):
+        _FakeClient.reset([_Response(json.dumps({'title':'title','body':'body'}))])
+        with patch('httpx.Client',_FakeClient):
+            horror_director._completion([{'role':'user','content':'legacy story'}],920,fast=False)
+        self.assertEqual(_FakeClient.payloads[0]['reasoning_effort'],'high')
+        self.assertNotIn('thinking',_FakeClient.payloads[0])
+
+    def test_exhausted_timeout_has_honest_diagnostics_and_success_clears_it(self):
+        _FakeClient.reset([httpx.ReadTimeout('provider detail'),httpx.ReadTimeout('provider detail'),_Response(json.dumps(PLAN))])
+        with patch('httpx.Client',_FakeClient),patch.object(horror_director.time,'sleep'):
+            self.assertIsNone(horror_director._completion([{'role':'user','content':'private input'}],420,fast=True))
+            self.assertIn('超时',horror_director.failure_hint())
+            self.assertIn('2次',horror_director.failure_hint())
+            self.assertNotIn('private input',horror_director.failure_hint())
+            self.assertNotIn('test-key',horror_director.failure_hint())
+            self.assertIsNotNone(horror_director._completion([{'role':'user','content':'another input'}],420,fast=True))
+            self.assertEqual(horror_director.failure_hint(),'')
+
+    def test_failure_diagnostics_are_context_local(self):
+        from contextvars import copy_context
+        context=copy_context()
+        original=horror_director.failure_hint()
+        context.run(horror_director._last_failure.set,{'category':'timeout','attempt':2,'status':None})
+        self.assertIn('超时',context.run(horror_director.failure_hint))
+        self.assertEqual(horror_director.failure_hint(),original)

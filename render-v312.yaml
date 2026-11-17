@@ -1,0 +1,36 @@
+# Separate resources: the original service and its in-progress sessions stay untouched.
+services:
+  - type: web
+    name: the-descent-v312
+    runtime: python
+    plan: free
+    region: singapore
+    branch: feat/deepening-horror-v312
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: DESCENT_DATABASE_URL
+        fromDatabase:
+          name: the-descent-v312-sessions
+          property: connectionString
+      - key: HORROR_LLM_API_KEY
+        fromService:
+          name: the-descent-game
+          type: web
+          envVarKey: HORROR_LLM_API_KEY
+      - key: HORROR_LLM_MODEL
+        fromService:
+          name: the-descent-game
+          type: web
+          envVarKey: HORROR_LLM_MODEL
+      - key: HORROR_LLM_BASE_URL
+        fromService:
+          name: the-descent-game
+          type: web
+          envVarKey: HORROR_LLM_BASE_URL
+databases:
+  - name: the-descent-v312-sessions
+    plan: free
+    region: singapore
+    ipAllowList: []
