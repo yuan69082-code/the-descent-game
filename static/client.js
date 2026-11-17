@@ -21,10 +21,9 @@
   function titlebar(){signal.textContent=current?.phase==='ended'?'CASE CLOSED':current?.phase==='epilogue'?'POSTSCRIPT':current?.edition==='v39'?String(current?.stage||1).padStart(2,'0'):current?.edition==='v38'?'V3.8 / OLD SESSION':current?.edition==='v37'?'V3.7 / OLD SESSION':'V3.6 / OLD SESSION';}
   function showIntro(){clear();signal.textContent='NO SIGNAL';
     const start=el('section','start');
-    start.append(el('div','eyebrow','THE DESCENT · V3.13.1'));
+    start.append(el('div','eyebrow','THE DESCENT · V3.13.0'));
     const h=el('h1','hero');h.textContent='这是一场恐怖游戏。';start.append(h);
-    start.append(el('p','intro','输赢不是最重要的。去感受这个游戏，也跟随游戏感受自己。'));
-    start.append(el('p','help','你确定要开始吗？'));
+    start.append(el('p','intro','你确定要开始吗？'));
     const modeLabel=el('label','smallLabel','本局模式');
     const modePicker=el('select','control');modePicker.id='modelMode';
     const freeOption=el('option','','免费模式 · 不调用语义模型');freeOption.value='free';modePicker.append(freeOption);

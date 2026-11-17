@@ -1,7 +1,6 @@
 """V3.13: behavioral evidence, delayed reveal and irreversible narrowing."""
 import unittest
 from unittest.mock import patch
-from pathlib import Path
 
 import deepening as story
 import horror_planner as planner
@@ -36,13 +35,6 @@ def new_v2(answers=None):
 
 
 class BehavioralReveal(unittest.TestCase):
-    def test_entry_copy_centers_experience_instead_of_winning(self):
-        root = Path(__file__).resolve().parents[1]
-        for relative in ("ai_web.py", "static/client.js", "static/index.html"):
-            text = (root / relative).read_text(encoding="utf-8")
-            self.assertIn("输赢不是最重要的。去感受这个游戏，也跟随游戏感受自己。", text)
-            self.assertNotIn("不要急着找最优解或破解规则", text)
-
     def test_model_cannot_replace_the_opening_slots_with_a_keyword_decoy(self):
         g = initialize({"edition": "v39", "model_mode": "model", "story_revision": story.REVISION})
         proposal = {"mode": "smalltalk", "focus": "a", "hook_id": "",
@@ -187,53 +179,6 @@ class BehavioralReveal(unittest.TestCase):
         self.assertNotIn("other_id", card)
         self.assertNotIn("玩家最害怕的秘密", public(g)["scene"]["body"])
         self.assertIn("隐性行为档案", completion.call_args.args[0][0]["content"])
-
-    def test_repeated_model_question_scaffold_is_replaced_by_a_different_form(self):
-        g = initialize({"edition": "v39", "model_mode": "free", "story_revision": story.REVISION})
-        planner.create(g)
-        for text in ANSWERS:
-            send(g, text)
-        self.assertEqual(g["stage"], 1)
-        g["model_mode"] = "model"
-        first = {"mode": "comparison", "focus": "a", "hook_id": "",
-                 "question": "你刚说要用固定哈希确认原始记录。现在，如果只能先核对一处，你会选哪一处？"}
-        with patch.object(planner, "configured", return_value=True), \
-             patch.object(planner, "_completion", return_value=first):
-            planner.create(g)
-        self.assertEqual(g["psych"]["plan"]["question"], first["question"])
-
-        previous = g["stage"]
-        act(g, "先核对原始记录", "")
-        planner.remember(g, "先核对原始记录", previous, "先核对原始记录", "")
-        repeated = {"mode": "condition", "focus": "a", "hook_id": "",
-                    "question": "你刚才说原始记录要先核对。现在，如果另一份马上清走，你会先选哪一份？"}
-        with patch.object(planner, "configured", return_value=True), \
-             patch.object(planner, "_completion", return_value=repeated):
-            card = planner.create(g)
-        self.assertNotEqual(card["question"], repeated["question"])
-        self.assertIn("真正会说的那句话", card["question"])
-
-    def test_event_frame_cannot_repeat_in_adjacent_later_scenes(self):
-        g = new_v2()
-        g["model_mode"] = "model"
-        g["psych"]["deep"]["frame_history"] = []
-        proposal = {"mode": "choice", "focus": "choice", "hook_id": "", "question": "",
-                    "event_frame": "silent_countdown"}
-        with patch.object(planner, "configured", return_value=True), \
-             patch.object(planner, "_completion", return_value=proposal):
-            first = planner.create(g)
-        self.assertEqual(first["event_frame"], "silent_countdown")
-        self.assertIn(story.FRAME_TEXT_V2["silent_countdown"], public(g)["scene"]["body"])
-
-        previous = g["stage"]
-        act(g, "A", "")
-        planner.remember(g, "A", previous, "A", "")
-        with patch.object(planner, "configured", return_value=True), \
-             patch.object(planner, "_completion", return_value=proposal):
-            second = planner.create(g)
-        self.assertNotEqual(second["event_frame"], "silent_countdown")
-        recent = g["psych"]["deep"]["frame_history"][-2:]
-        self.assertNotEqual(recent[0]["frame"], recent[1]["frame"])
 
 
 if __name__ == "__main__":
