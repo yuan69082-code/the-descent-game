@@ -20,27 +20,22 @@ app = FastAPI(title="THE DESCENT", docs_url=None, redoc_url=None, openapi_url=No
 app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
 
 
-def init_db():
-    with sqlite3.connect(str(DB), timeout=10) as conn:
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("CREATE TABLE IF NOT EXISTS game_sessions (token_hash TEXT PRIMARY KEY, state_json TEXT NOT NULL, updated_at REAL NOT NULL, version INTEGER NOT NULL DEFAULT 0)")
-        conn.execute("CREATE INDEX IF NOT EXISTS idx_updated ON game_sessions(updated_at)")
+from session_storage import connection as storage_connection, initialize as initialize_storage, postgres_url
 
-init_db()
+
+def init_db():
+    from session_storage import initialize_database
+    initialize_database(DB)
+
 
 @contextmanager
 def db(write=False):
-    conn=sqlite3.connect(str(DB),timeout=12)
-    conn.row_factory=sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=12000")
-    if write: conn.execute("BEGIN IMMEDIATE")
-    try:
+    from session_storage import connection
+    with connection(DB, write) as conn:
         yield conn
-        if write:conn.commit()
-    except Exception:
-        if write:conn.rollback()
-        raise
-    finally:conn.close()
+
+
+init_db()
 
 
 def token_key(token:str)->str:
@@ -86,7 +81,8 @@ def index():
 def health():
     from horror_director import configured
     return {"ok":True,"name":"THE DESCENT","version":"3.12",
-            "model_configured":configured()}
+            "model_configured":configured(),
+            "session_storage":"postgres" if postgres_url() else "sqlite"}
 
 @app.post("/api/new",status_code=201)
 def new_game(payload:NewGame):

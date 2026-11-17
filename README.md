@@ -51,3 +51,14 @@ AI 自主入口：<https://the-descent-game.onrender.com/ai>
 回归测试：`python -m unittest discover -s tests -p 'test_*.py' -v`
 
 导出新增当前修订、对象状态、逐次经历、已接受路径和事件因果。测试验证状态与叙事一致性；恐怖与反思的实际体验需要后续独立盲玩反馈。
+
+## 隔离发布
+
+`render-v312.yaml` 只创建新版免费服务和免费 Postgres，不接管或重启旧服务。模型配置通过 Render 内部服务引用复用，不把凭据复制到源码或日志。新地址从 `RENDER_EXTERNAL_URL` 自动读取，AI 行动链接不会串回旧站。Render 免费 Postgres 有 30 天有效期，需要到期前迁移，不会自动开通收费实例。
+
+## 独立上线与存档
+
+`render-v312.yaml` 仅创建新版免费 Web 服务与免费 Postgres，不修改原服务；旧局继续由原地址承接。
+新服务通过平台引用原服务的模型环境变量，不把密钥写入仓库。AI 行动链接自动使用新服务自己的公开域名。
+设置 `DESCENT_DATABASE_URL` 后使用 Postgres；连接失败直接报错，不静默退回本地 SQLite。未配置时保留本地 SQLite，供开发和原版运行。
+**Render 免费 Postgres 有效期为30天，届时需另行迁移；不会自动转付费。** 对局本身沿用14天未活动清理策略。

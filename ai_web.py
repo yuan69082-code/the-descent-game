@@ -20,7 +20,7 @@ from fastapi.responses import HTMLResponse
 
 from game_engine import initialize, act, public, VALUES
 
-BASE_URL = os.environ.get("DESCENT_PUBLIC_ORIGIN", "https://the-descent-game.onrender.com").rstrip("/")
+BASE_URL = os.environ.get("DESCENT_PUBLIC_ORIGIN", os.environ.get("RENDER_EXTERNAL_URL", "https://the-descent-game.onrender.com")).rstrip("/")
 FIELDS = ("name", "identity", "person", "bond", "memory", "principle", "fear")
 RANK = ",".join(VALUES)
 
