@@ -35,6 +35,16 @@ def new_v2(answers=None):
 
 
 class BehavioralReveal(unittest.TestCase):
+    def test_model_cannot_replace_the_opening_slots_with_a_keyword_decoy(self):
+        g = initialize({"edition": "v39", "model_mode": "model", "story_revision": story.REVISION})
+        proposal = {"mode": "smalltalk", "focus": "a", "hook_id": "",
+                    "question": "如果今晚要挑一个人守夜，你会叫谁的名字？"}
+        with patch.object(planner, "configured", return_value=True), \
+             patch.object(planner, "_completion", return_value=proposal):
+            planner.create(g)
+        self.assertIn("怎么称呼你", public(g)["scene"]["body"])
+        self.assertNotIn("守夜", public(g)["scene"]["body"])
+
     def test_new_revision_is_shorter_and_old_revision_remains_playable(self):
         g = new_v2()
         self.assertEqual(g["turn"], 11)

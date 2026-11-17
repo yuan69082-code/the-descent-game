@@ -291,7 +291,12 @@ def create(g):
             current["hook_id"]="";applied=True
         elif isinstance(candidate,str) and candidate in valid:
             current["hook_id"]=candidate;applied=True
-        if stage<2 and _question_ok(g,proposal.get("question")):
+        # V3.13's six opening prompts are deliberately fixed: they establish
+        # the factual slots without letting a keyword-matching model turn a
+        # name question into a new relationship hypothetical.  The model may
+        # personalize the situated second act after those facts exist.
+        from deepening import is_v2
+        if stage<2 and not (is_v2(g) and stage == 0) and _question_ok(g,proposal.get("question")):
             current["question"]=proposal["question"].strip();applied=True
     from deepening import enabled, available
     if enabled(g) and isinstance(proposal, dict):
