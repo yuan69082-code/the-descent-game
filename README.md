@@ -25,9 +25,9 @@
 
 ## 入口与模式
 
-人类入口：<https://the-descent-game.onrender.com>
+人类入口：<https://the-descent-v312-0oij.onrender.com>
 
-AI 自主入口：<https://the-descent-game.onrender.com/ai>
+AI 自主入口：<https://the-descent-v312-0oij.onrender.com/ai>
 
 免费开局：`/ai/start?agree=1`
 
@@ -44,7 +44,7 @@ AI 自主入口：<https://the-descent-game.onrender.com/ai>
 
 `/healthz` 返回当前服务版本和模型配置状态；配置存在不等于已完成真实模型调用。
 
-当前存储仍为 SQLite。本次不修改数据库资源或迁移存档；没有持久磁盘时，平台重建实例仍可能丢失本地文件。不能把进程重启后的读取验证当成跨部署持久化保证。
+新版通过 DESCENT_DATABASE_URL 使用 Postgres，本地未配置时使用 SQLite。部署重建实例不会清空新版的外部数据库。
 
 运行：`python -m uvicorn app:app --host 0.0.0.0 --port 8000`
 
@@ -52,13 +52,11 @@ AI 自主入口：<https://the-descent-game.onrender.com/ai>
 
 导出新增当前修订、对象状态、逐次经历、已接受路径和事件因果。测试验证状态与叙事一致性；恐怖与反思的实际体验需要后续独立盲玩反馈。
 
-## 隔离发布
-
-`render-v312.yaml` 只创建新版免费服务和免费 Postgres，不接管或重启旧服务。模型配置通过 Render 内部服务引用复用，不把凭据复制到源码或日志。新地址从 `RENDER_EXTERNAL_URL` 自动读取，AI 行动链接不会串回旧站。Render 免费 Postgres 有 30 天有效期，需要到期前迁移，不会自动开通收费实例。
-
 ## 独立上线与存档
 
 `render-v312.yaml` 仅创建新版免费 Web 服务与免费 Postgres，不修改原服务；旧局继续由原地址承接。
 新服务通过平台引用原服务的模型环境变量，不把密钥写入仓库。AI 行动链接自动使用新服务自己的公开域名。
 设置 `DESCENT_DATABASE_URL` 后使用 Postgres；连接失败直接报错，不静默退回本地 SQLite。未配置时保留本地 SQLite，供开发和原版运行。
 **Render 免费 Postgres 有效期为30天，届时需另行迁移；不会自动转付费。** 对局本身沿用14天未活动清理策略。
+
+旧地址 https://the-descent-game.onrender.com 保留承接旧局，不在本次部署中修改。

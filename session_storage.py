@@ -52,18 +52,10 @@ def connection(sqlite_path, write=False):
         conn.close()
 
 
-def initialize(sqlite_path):
+def initialize_database(sqlite_path):
     if not postgres_url():
         with sqlite3.connect(str(sqlite_path), timeout=10) as conn:
             conn.execute('PRAGMA journal_mode=WAL')
-    with connection(sqlite_path, write=True) as conn:
-        conn.execute('CREATE TABLE IF NOT EXISTS game_sessions ('
-                     'token_hash TEXT PRIMARY KEY, state_json TEXT NOT NULL, '
-                     'updated_at DOUBLE PRECISION NOT NULL, version INTEGER NOT NULL DEFAULT 0)')
-        conn.execute('CREATE INDEX IF NOT EXISTS idx_updated ON game_sessions(updated_at)')
-
-
-def initialize_database(sqlite_path):
     with connection(sqlite_path, write=True) as conn:
         number_type = 'DOUBLE PRECISION' if postgres_url() else 'REAL'
         conn.execute('CREATE TABLE IF NOT EXISTS game_sessions ('

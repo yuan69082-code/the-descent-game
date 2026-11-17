@@ -20,7 +20,7 @@ app = FastAPI(title="THE DESCENT", docs_url=None, redoc_url=None, openapi_url=No
 app.mount("/static", StaticFiles(directory=BASE/"static"), name="static")
 
 
-from session_storage import connection as storage_connection, initialize as initialize_storage, postgres_url
+from session_storage import postgres_url
 
 
 def init_db():
@@ -80,6 +80,8 @@ def index():
 @app.get("/healthz")
 def health():
     from horror_director import configured
+    with db() as conn:
+        conn.execute("SELECT 1").fetchone()
     return {"ok":True,"name":"THE DESCENT","version":"3.12",
             "model_configured":configured(),
             "session_storage":"postgres" if postgres_url() else "sqlite"}
