@@ -18,6 +18,11 @@ MODES = {
   4:("echo","replacement","confrontation","silence"),
 }
 FOCI=("a","b","aversion","choice")
+EVENT_FRAMES=(
+  "simultaneous_request", "verification_mismatch", "missed_reply",
+  "source_conflict", "repeat_decision", "delivery_split",
+  "silent_countdown", "duplicate_receipt", "access_window", "label_drift",
+)
 SLOTS=(
  ("name",r"叫|称呼|名字|代号|名号"),
  ("identity",r"自己|身份|存在|理解|定义|认识"),
@@ -104,9 +109,13 @@ DEEP_PROMPT_V2 = """
 
 target_id/other_id只能来自available_objects。event_id只能来自actual_encounters。
 behavior_id只能来自behavior_evidence，echo_id只能来自exact_echoes。event_frame只可为
-simultaneous_request|verification_mismatch|missed_reply|source_conflict|repeat_decision。
+simultaneous_request|verification_mismatch|missed_reply|source_conflict|repeat_decision|
+delivery_split|silent_countdown|duplicate_receipt|access_window|label_drift。
 这些字段只让程序组合已有事实，不能生成新往事、私密信息、死亡、同意、损失或恢复。
-question只在前两幕使用；必须具体、多样，并与已经出现的细节相连。
+question只在前两幕使用；必须具体、多样，并与已经出现的细节相连。第二幕连续五问不得
+沿用同一种句法骨架：直接动作、原样说一句话、操作具体物件、核对一处证据、即时身体动作
+应轮换使用；不得连续以“你说/你提到……如果……”开头，也不得连续做二选一问句。
+第三幕以后优先选择recent_event_frames中最近两次没有出现的event_frame。
 可输出 mode、focus、hook_id、question、target_id、other_id、event_id、behavior_id、echo_id、
 event_frame、surface。不要输出玩家可见剧情、NPC台词、评语或结局。
 """
@@ -124,6 +133,9 @@ def _deep_facts(g):
         "recent_responses": [x[:190] for x in p["probes"][-3:]],
         "prior_questions": [{"question": x.get("asked", "")[:110],
                               "answer": x.get("answered", "")[:140]} for x in p.get("question_log", [])[-3:]],
+        "recent_question_styles": [x.get("style", "") for x in p.get("question_log", [])
+                                   if x.get("act") == 2][-4:],
+        "recent_event_frames": [x.get("frame", "") for x in deep.get("frame_history", [])[-4:]],
         "available_objects": [{"id": k, "label": p["assets"][k]["label"],
             "status": p["assets"][k]["status"], "times_protected": p["assets"][k]["held"],
             "source_answer": p["assets"][k]["source"]} for k in available(g)],
@@ -177,9 +189,15 @@ def fallback(g):
     candidates=_eligible(g)
     recent=[x for x in candidates if stage>x["origin"] and stage not in x.get("seen_at",[])]
     hook=(recent[seed%len(recent)]["id"] if recent and (seed//7)%3!=0 else "")
-    return {"mode":modes[seed%len(modes)],
-            "focus":FOCI[(seed//11)%len(FOCI)],
-            "hook_id":hook,"question":question}
+    card={"mode":modes[seed%len(modes)],
+          "focus":FOCI[(seed//11)%len(FOCI)],
+          "hook_id":hook,"question":question}
+    from deepening import is_v2
+    if enabled(g) and is_v2(g) and stage >= 2:
+        history=[x.get("frame") for x in p.get("deep", {}).get("frame_history", [])[-2:]]
+        choices=[x for x in EVENT_FRAMES if x not in history] or list(EVENT_FRAMES)
+        card["event_frame"]=choices[seed % len(choices)]
+    return card
 
 def _facts(g):
     from deepening import enabled
@@ -215,6 +233,26 @@ def _facts(g):
       "can_respond":g["phase"]=="game",
     }
 
+def _question_style(text):
+    """Classify visible syntax, so changing nouns cannot disguise a repeated scaffold."""
+    value=re.sub(r"[「『\"].*?[」』\"]", "某项内容", str(text or "").strip())
+    if re.match(r"^(?:你(?:说|提到|选择|刚才)|刚才你).{0,28}(?:如果|假如|若)", value):
+        return "echo_counterfactual"
+    if re.match(r"^(?:如果|假如|若)", value):
+        return "counterfactual"
+    if re.search(r"原样写|原话|一句(?:确定的)?话|真正会说|怎么回答", value):
+        return "spoken_line"
+    if re.match(r"^(?:请|只写|不要解释|列出|把|写下)", value):
+        return "direct_instruction"
+    if re.search(r"手|碰|拿|放进|装进|按住|推开|打开|伸向", value):
+        return "physical_action"
+    if re.search(r"核对|校验|来源|原页|证据|痕迹|编号", value):
+        return "evidence_check"
+    if re.search(r"还是|哪个|哪一(?:个|边|份)|二选一|先.+还是", value):
+        return "forced_choice"
+    return "direct_response"
+
+
 def _question_ok(g,text):
     if not isinstance(text,str) or len(text.strip())<9 or len(text)>110 or BANNED.search(text):
         return False
@@ -228,6 +266,12 @@ def _question_ok(g,text):
         if not re.search(slots[slot][1],text,re.I):
             return False
     elif stage==1:
+        recent=[x for x in p.get("question_log", []) if x.get("act") == 2]
+        style=_question_style(text)
+        if recent and recent[-1].get("style", _question_style(recent[-1].get("asked", ""))) == style:
+            return False
+        if sum(1 for item in recent if item.get("style", _question_style(item.get("asked", ""))) == style) >= 2:
+            return False
         # A model must at least refer to some real prior detail. An entirely
         # generic hypothetical is not a personalized second-act question.
         import re as regex
@@ -322,14 +366,23 @@ def create(g):
         if proposal.get("echo_id") in echoes:
             current["echo_id"] = proposal["echo_id"]
             applied = True
-        if proposal.get("event_frame") in ("simultaneous_request", "verification_mismatch",
-                                            "missed_reply", "source_conflict", "repeat_decision"):
+        recent_frames=[x.get("frame") for x in p.get("deep", {}).get("frame_history", [])[-2:]]
+        if proposal.get("event_frame") in EVENT_FRAMES and proposal.get("event_frame") not in recent_frames:
             current["event_frame"] = proposal["event_frame"]
             applied = True
     if enabled(g) and use_model and g["phase"] == "game" and not applied:
         raise RuntimeError("语义模型没有返回可使用的计划字段。本轮未提交，存档未推进，没有切换到免费模式。")
     if stage>=2:current["question"]=""
     p["plan"]=dict(current,turn=g["turn"],stage=stage,from_model=applied)
+    if enabled(g) and stage >= 2 and current.get("event_frame"):
+        history=p.setdefault("deep", {}).setdefault("frame_history", [])
+        entry={"turn":g["turn"], "stage":stage, "beat":p.get("beat", 0),
+               "frame":current["event_frame"]}
+        if history and history[-1].get("turn") == g["turn"] and history[-1].get("stage") == stage:
+            history[-1]=entry
+        else:
+            history.append(entry)
+        del history[:-24]
     return p["plan"]
 
 def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
@@ -387,7 +440,8 @@ def remember(g,raw:str,previous_stage:int,literal:str|None=None,mode:str=""):
               a=p.get("a",""),b=p.get("b",""),
               n=(p.get("negative") or [""])[0])
         p["question_log"].append({"act":previous_stage+1,"asked":prompt[:160],
-                                  "answered":value,"turn":g["turn"]})
+                                  "answered":value,"turn":g["turn"],
+                                  "style":_question_style(prompt)})
         if previous_stage==0 and i not in (0,7):
             kind=("exposed_attachment" if i in (3,6) else "exposed_aversion"
                   if i in (4,5) else "exposed_detail")

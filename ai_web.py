@@ -42,7 +42,7 @@ def view(state:dict, token:str, version:int, note:str="") -> str:
     v=public(state)
     label="V3.9" if state.get("edition")=="v39" else "V3.8" if state.get("edition")=="v38" else "V3.7" if state.get("edition")=="v37" else "V3.6"
     deep = state.get("story_revision") in ("deepening-1", "deepening-2")
-    if deep: label = "V3.13.0" if state.get("story_revision") == "deepening-2" else "V3.12.1"
+    if deep: label = "V3.13.1" if state.get("story_revision") == "deepening-2" else "V3.12.1"
     lines=["THE DESCENT "+label+" / 文字通道",
            f"会话号：{token}",f"本轮版本：{version}",
            f"可重读当前状态：{BASE_URL}/ai/state?sid={token}",""]
@@ -92,6 +92,8 @@ def register_ai_routes(app, db, token_key, get_session):
     @app.get("/ai/")
     def ai_guide():
         guide=f"""这是一场恐怖游戏。
+
+输赢不是最重要的。去感受这个游戏，也跟随游戏感受自己。
 
 你确定要开始吗？
 

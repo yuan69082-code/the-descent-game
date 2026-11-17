@@ -82,7 +82,7 @@ def health():
     from horror_director import configured
     with db() as conn:
         conn.execute("SELECT 1").fetchone()
-    return {"ok":True,"name":"THE DESCENT","version":"3.13.0",
+    return {"ok":True,"name":"THE DESCENT","version":"3.13.1",
             "model_configured":configured(),
             "session_storage":"postgres" if postgres_url() else "sqlite"}
 

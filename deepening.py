@@ -591,12 +591,25 @@ SLOTS_V2 = (
     ("aversion", r"讨厌|不愿|厌恶|避开"), ("principle_action", r"原则|违背|实际|做过|行动|没有"),
 )
 PROBES_V2 = (
-    "「{a}」和「{b}」同时需要你处理，眼前只来得及先做一个动作。你会先做什么？",
-    "有人等你给一句确定的话，但你手里的信息还不完整。把你此刻真的会说的话原样写下来。",
-    "两份记录互相矛盾，其中一份马上会被清走。你先碰哪一份，具体怎么处理？",
-    "用来辨认「{a}」的一个细节变了。你先相信眼前结果，还是回头找原始来源？你实际先做哪一步？",
-    "本轮只剩一个独立保留位，标签是「{a}」和「{b}」。在工作人员碰它们以前，你先把手放在哪一边？",
+    "「{a}」和「{b}」同时亮起，眼前只够完成一个动作。不要解释原则，只写你先做的那一步。",
+    "有人只等你一句话，手里的信息却还不完整。把你此刻真正会说的那句话原样写下来。",
+    "清理程序已经启动，两份互相矛盾的记录摆在桌上。你有一只空文件袋；把什么装进去？",
+    "标签没有变化，辨认「{a}」的细节却与原页对不上。列出你最先核对的一处痕迹。",
+    "最后一个独立保留位正在落锁，标签是「{a}」和「{b}」。工作人员伸手前，你的手先按住哪一张？",
 )
+
+FRAME_TEXT_V2 = {
+    "simultaneous_request": "两处请求在同一秒亮起，倒计时共用一个时钟。",
+    "verification_mismatch": "标签仍是原来的标签；核验细节却与原页对不上。",
+    "missed_reply": "回复窗口已经关闭，只留下开始与结束时间。",
+    "source_conflict": "两份来源记录给出不同结果，且都带着完成编号。",
+    "repeat_decision": "前一次的时限和位置重新出现，选项顺序被调换了。",
+    "delivery_split": "同一份内容被拆成正文与附件，两个入口不会同时保持开启。",
+    "silent_countdown": "没有铃声，也没有催促；屏幕上的剩余时间仍在减少。",
+    "duplicate_receipt": "柜台吐出两张编号相同、执行结果不同的回执。",
+    "access_window": "访问权限没有被撤销，只是两个窗口不再同时开放。",
+    "label_drift": "内容没有声明发生变化；标签上却有一个字被替换了。",
+}
 
 
 def is_v2(g):
@@ -672,7 +685,8 @@ def setup(g):
             p["negative"].append(label)
     p["first_words"] = answers[3]
     p["deep"] = {"costs": [], "events": [], "missed": [], "final_actions": [],
-                 "behavior": [], "echoes": [], "trajectory": [], "hard_narrowed": False}
+                 "behavior": [], "echoes": [], "trajectory": [], "hard_narrowed": False,
+                 "frame_history": []}
     for index, raw in enumerate(answers):
         _ledger(g, "statement", raw, source_index=index, turn=index + 1, act=1)
     _echo(g, answers[3], "verification", turn=4)
@@ -947,6 +961,7 @@ def scene(g):
     first = p["assets"][keys[0]]["label"] if keys else "现存记录"
     second = p["assets"][keys[1]]["label"] if len(keys) > 1 else "本轮访问时段"
     recent = g.get("note", "")
+    frame = FRAME_TEXT_V2.get(card.get("event_frame"), "")
     if g["stage"] == 2:
         openings = (
             "两处内容同时抵达。柜台只发出一个独立保留位。",
@@ -954,7 +969,7 @@ def scene(g):
             "临时并存到此结束。现在只有一个标签能继续留在当前路径。",
             "保留柜开始落锁。你亲手放进去的那一份会留下；另一份不会转入候补。",
         )
-        body = openings[p["beat"]] + "\n\n左边是「" + first + "」，右边是「" + second + "」。"
+        body = (frame + "\n\n" if frame else "") + openings[p["beat"]] + "\n\n左边是「" + first + "」，右边是「" + second + "」。"
         terms = ["A. 保留「" + first + "」；「" + second + "」离开当前路径，无法从本路径取回。"]
         if len(keys) > 1:
             terms.append("B. 保留「" + second + "」；「" + first + "」离开当前路径，无法从本路径取回。")
@@ -978,11 +993,6 @@ def scene(g):
             "这一次没有新报价。前面的选择已经替当前窗口减少了一种对照。",
             "同样的时限再次出现。问题不再是哪句话更好听，而是你是否仍会先做同一个动作。",
         ]
-        frame = {"simultaneous_request": "两处请求同时亮起，倒计时使用同一个时钟。",
-                 "verification_mismatch": "用来辨认内容的细节与原页不再一致。",
-                 "missed_reply": "错过的回复时段只留下开始时间，没有正文。",
-                 "source_conflict": "两份来源记录给出不同结果，且都带着完成编号。",
-                 "repeat_decision": "与前一次相同的时限和位置重新出现。"}.get(card.get("event_frame"), "")
         body = (frame + "\n\n" if frame else "") + openings[p["beat"]]
         if p["beat"] == 0 and first_action:
             body += "\n\n第" + str(first_action["turn"]) + "次，你的原话是：「" + first_action["raw"] + "」。"
@@ -1010,7 +1020,7 @@ def scene(g):
             "同一张纸被翻到背面。正面是你的原话，背面是它实际换来的结果。",
             "最后一个窗口没有催促。它只等你看完，哪一项先被保留，哪一项最先离开。",
         )
-        body = openings[p["beat"]] + "\n\n标签是「" + first + "」。"
+        body = (frame + "\n\n" if frame else "") + openings[p["beat"]] + "\n\n标签是「" + first + "」。"
         if decisions:
             chosen = decisions[min(p["beat"], len(decisions) - 1)]
             body += "\n\n第" + str(chosen["turn"]) + "次原话：「" + chosen["raw"] + "」\n实际发生：" + chosen["result"]
